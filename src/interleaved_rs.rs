@@ -161,13 +161,16 @@ impl InterleavedRS {
             let col_end = (col_start + self.max_data_per_row).min(num_columns);
             let group_cols = col_end - col_start;
 
-            // Create a codec for this group's column count
-            let group_codec = if group_cols == self.max_data_per_row.min(num_columns) {
+            // BUG FIX: Create optimal codec for each group's actual column count.
+            // Previously, partial groups (last group with fewer columns) were padded
+            // to the full codec size, wasting parity bandwidth on zero-padding.
+            // Now each group uses a codec sized to its actual column count.
+            let group_codec = if group_cols == codec.data_symbols {
                 &codec
             } else {
-                // Need a shorter codec for the last group
-                // We'll encode inline
-                &codec // Actually, we pad to full size below
+                // Partial group: create a smaller codec inline
+                // group_cols must be >= 1 (ensured by the loop logic)
+                &ReedSolomonCodec::new(group_cols.max(2), self.parity_per_row)
             };
 
             // For each row (depth), collect one byte from each column in this group
@@ -245,10 +248,13 @@ impl InterleavedRS {
             let col_end = (col_start + max_data).min(num_columns);
             let group_cols = col_end - col_start;
 
-            let group_codec = if group_cols == max_data.min(num_columns) {
+            // BUG FIX: Match the encode-side fix — use optimal codec for partial groups
+            let partial_codec;
+            let group_codec = if group_cols == codec.data_symbols {
                 &codec
             } else {
-                &codec // padded rows
+                partial_codec = ReedSolomonCodec::new(group_cols.max(2), parity);
+                &partial_codec
             };
 
             for row in 0..depth {

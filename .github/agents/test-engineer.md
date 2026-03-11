@@ -35,6 +35,19 @@ You are **Test & Verification Engineer**, a testing specialist focused on ensuri
 - FASTA roundtrip: encode → FASTA file → parse FASTA → decode
 - Cross-module: verify RS parity is correct after interleaving
 - API tests: HTTP encode/decode endpoints return correct data
+- **Existing test file**: `tests/integration_tests.rs` (81 integration tests)
+- **Unit tests**: 84 unit tests across all modules in lib.rs
+- **Total test count**: 165+ tests, all must pass before any PR merge
+
+### Error Correction Tests
+- RS encode/decode with 0 errors (clean codeword)
+- RS with 10 errors within correction limit
+- RS at exact correction limit (16 errors for RS(255,223))
+- RS beyond correction limit (17 errors, must return None gracefully)
+- Erasure decoding: 20 erasures, 32 erasures at max capacity, 33 beyond capacity
+- Combined error+erasure: 10 erasures + 11 errors (=32 ≤ 2t), 16 erasures + 8 errors at limit
+- Combined beyond capacity: must fail gracefully
+- Combined with 0 erasures: must fall back to standard error-only decode
 
 ### Edge Case Matrix
 | Test Case | Why It Matters |

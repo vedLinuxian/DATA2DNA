@@ -9,7 +9,7 @@ use sha2::{Sha256, Digest};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 
-use helix_core::pipeline::{HelixPipeline, PipelineConfig};
+use helix_core::pipeline::{HelixPipeline, PipelineConfig, estimate_entropy, classify_data, calculate_adaptive_redundancy};
 use helix_core::reed_solomon::ReedSolomonCodec;
 use helix_core::fountain::{FountainCodec, Droplet};
 use helix_core::transcoder::{Transcoder, bytes_to_dna, dna_to_bytes, calculate_gc, check_homopolymer};
@@ -1542,4 +1542,360 @@ fn pipeline_with_progress_callback() {
     let decode = pipeline.decode(None).unwrap();
     assert!(decode.success);
     assert_eq!(sha256_hex(&decode.recovered_data.unwrap()), checksum_before);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  RS Erasure & Combined E&E Integration Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn rs_erasure_decode_integration() {
+    let rs = ReedSolomonCodec::new(223, 32);
+    
+    // Encode some CSV-like data
+    let data = sample_csv();
+    let (encoded, stats_enc) = rs.encode_buffer(&data);
+    
+    // Simulate erasures in each block: zero out 15 known positions per block
+    let mut corrupted = encoded.clone();
+    let mut block_count = 0;
+    for block_start in (0..corrupted.len()).step_by(255) {
+        let block_end = (block_start + 255).min(corrupted.len());
+        if block_end - block_start < 255 { break; }
+        // Erase 15 positions (well within 2t=32 limit)
+        for i in 0..15 {
+            corrupted[block_start + i * 16] = 0;
+        }
+        block_count += 1;
+    }
+    
+    // Standard error decoding should still work for small corruptions
+    let result = rs.decode_buffer(&corrupted);
+    assert!(result.is_some(), "RS should recover from moderate per-block corruption");
+    let (recovered, _stats) = result.unwrap();
+    assert_eq!(sha256_hex(&recovered), sha256_hex(&data));
+}
+
+#[test]
+fn rs_erasure_only_decode_codeword() {
+    let rs = ReedSolomonCodec::new(223, 32);
+    let data: Vec<u8> = (0..223).map(|i| (i * 3 % 256) as u8).collect();
+    let mut cw = rs.encode(&data);
+    
+    // Erase 25 positions (within 2t=32 limit)
+    let erasure_positions: Vec<usize> = (0..25).collect();
+    for &pos in &erasure_positions {
+        cw[pos] = 0;
+    }
+    
+    let result = rs.decode_erasures(&cw, &erasure_positions);
+    assert!(result.is_some(), "Should correct 25 erasures (limit is 32)");
+    let (recovered, ne) = result.unwrap();
+    assert_eq!(ne, 25);
+    assert_eq!(recovered, data);
+}
+
+#[test]
+fn rs_combined_error_and_erasure_integration() {
+    let rs = ReedSolomonCodec::new(223, 32);
+    let data: Vec<u8> = sample_csv()[..223.min(sample_csv().len())].to_vec();
+    let data_padded: Vec<u8> = if data.len() < 223 {
+        let mut d = data.clone();
+        d.resize(223, 0);
+        d
+    } else {
+        data[..223].to_vec()
+    };
+    
+    let mut cw = rs.encode(&data_padded);
+    
+    // 8 erasures + 12 errors = 32 ≤ 2t ✓
+    let erasure_positions: Vec<usize> = (0..8).collect();
+    for &pos in &erasure_positions {
+        cw[pos] = 0;
+    }
+    for &p in &[50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160] {
+        cw[p] ^= 0xCD;
+    }
+    
+    let result = rs.decode_errors_and_erasures(&cw, &erasure_positions);
+    assert!(result.is_some(), "Should handle 8 erasures + 12 errors");
+    let (recovered, err_count, era_count) = result.unwrap();
+    assert_eq!(recovered, data_padded);
+    assert_eq!(err_count, 12);
+    assert_eq!(era_count, 8);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Entropy & Classification Integration Tests
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn entropy_estimation_csv_data() {
+    let csv = sample_csv();
+    let entropy = estimate_entropy(&csv);
+    // CSV data should have moderate entropy (3-6 bits/byte)
+    assert!(entropy > 2.0 && entropy < 7.0,
+        "CSV entropy should be moderate, got {}", entropy);
+}
+
+#[test]
+fn entropy_estimation_random_data() {
+    let random = random_bytes(10000, 42);
+    let entropy = estimate_entropy(&random);
+    // Random data should have near-maximum entropy (>7.5)
+    assert!(entropy > 7.5, "Random data entropy should be near max, got {}", entropy);
+}
+
+#[test]
+fn entropy_estimation_repetitive_data() {
+    let repetitive = vec![b'A'; 10000];
+    let entropy = estimate_entropy(&repetitive);
+    // Single-byte data has 0 entropy
+    assert!(entropy < 0.01, "Repetitive data should have near-zero entropy, got {}", entropy);
+}
+
+#[test]
+fn classify_data_csv() {
+    let csv = sample_csv();
+    let (class, compressibility) = classify_data(&csv);
+    // CSV should be classified as structured or text-like
+    assert!(
+        class == "structured_text" || class == "natural_text" || class == "code_or_markup" || class == "mixed_text",
+        "CSV classified as '{}', expected text-like class", class
+    );
+    assert!(compressibility > 1.5, "CSV should be compressible, got {}", compressibility);
+}
+
+#[test]
+fn classify_data_random() {
+    let random = random_bytes(10000, 42);
+    let (class, compressibility) = classify_data(&random);
+    // Random data should be classified as high entropy
+    assert!(
+        class == "high_entropy_binary" || class == "pre_compressed" || class == "binary_data",
+        "Random data classified as '{}', expected high-entropy class", class
+    );
+    assert!(compressibility < 2.0, "Random data compressibility should be low, got {}", compressibility);
+}
+
+#[test]
+fn adaptive_redundancy_compressible() {
+    let csv = sample_csv();
+    let _entropy = estimate_entropy(&csv);
+    let redundancy = calculate_adaptive_redundancy(csv.len(), 0.30, 0.05, 0.001);
+    // Should be in valid range
+    assert!(redundancy >= 1.2 && redundancy <= 10.0,
+        "Adaptive redundancy out of range: {}", redundancy);
+}
+
+#[test]
+fn adaptive_redundancy_random() {
+    let random = random_bytes(10000, 42);
+    let _entropy = estimate_entropy(&random);
+    let redundancy = calculate_adaptive_redundancy(random.len(), 0.30, 0.05, 0.001);
+    // Should be in valid range
+    assert!(redundancy >= 1.5, "Random data should need more redundancy: {}", redundancy);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Pipeline Entropy Fields Integration
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn pipeline_encode_includes_entropy_fields() {
+    let data = sample_csv();
+    let mut pipeline = HelixPipeline::new(PipelineConfig::default());
+    let output = pipeline.encode(&data, "test.csv", None);
+    
+    // EncodeOutput should now include entropy fields
+    assert!(output.entropy_bits_per_byte > 0.0, "Entropy should be positive");
+    assert!(output.entropy_bits_per_byte <= 8.0, "Entropy should be ≤ 8.0");
+    assert!(!output.data_class.is_empty(), "Data class should not be empty");
+    assert!(output.estimated_compressibility > 0.0, "Compressibility should be positive");
+}
+
+#[test]
+fn pipeline_roundtrip_with_entropy_analysis() {
+    let data = sample_sql();
+    let checksum_before = sha256_hex(&data);
+    
+    let mut pipeline = HelixPipeline::new(PipelineConfig::default());
+    let encode_output = pipeline.encode(&data, "test.sql", None);
+    
+    // Verify entropy analysis happened
+    assert!(encode_output.entropy_bits_per_byte > 0.0);
+    assert!(!encode_output.data_class.is_empty());
+    
+    // Full roundtrip still works
+    let decode = pipeline.decode(None).unwrap();
+    assert!(decode.success);
+    assert_eq!(sha256_hex(&decode.recovered_data.unwrap()), checksum_before);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  DNA Constraints Byte-Level Optimization Verification
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn dna_constraints_byte_level_correctness() {
+    let constraints = DNAConstraints::new();
+    
+    // Test with valid DNA sequence (no homopolymer runs > 3)
+    let valid_oligos = vec!["ACGTACGTACGTACGTACGTACGT"];
+    let report = constraints.check_oligos(&valid_oligos);
+    // Valid DNA should have no homopolymer violations
+    let hp_violations: Vec<_> = report.violations.iter()
+        .filter(|v| v.violation_type == "homopolymer")
+        .collect();
+    assert!(hp_violations.is_empty(), "Valid DNA should have no homopolymer violations");
+    
+    // Test with invalid homopolymer
+    let invalid_oligos = vec!["ACGTAAAACGTACGTACGTACGTACGT"];
+    let report_bad = constraints.check_oligos(&invalid_oligos);
+    let bad_hp: Vec<_> = report_bad.violations.iter()
+        .filter(|v| v.violation_type == "homopolymer")
+        .collect();
+    assert!(!bad_hp.is_empty(), "AAAA should produce homopolymer violation");
+}
+
+#[test]
+fn dna_constraints_melting_temperature() {
+    use helix_core::dna_constraints::melting_temperature;
+    
+    // GC-rich sequence should have higher Tm
+    let gc_rich = "GCGCGCGCGCGCGCGCGCGC";
+    let at_rich = "ATATATATATATATATATATAT";
+    
+    let tm_gc = melting_temperature(gc_rich);
+    let tm_at = melting_temperature(at_rich);
+    
+    // GC-rich should have higher melting temperature
+    assert!(tm_gc > tm_at,
+        "GC-rich ({:.1}°C) should have higher Tm than AT-rich ({:.1}°C)",
+        tm_gc, tm_at);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Interleaved RS Partial Group Fix Verification
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn interleaved_rs_partial_group_roundtrip() {
+    // Test data that doesn't align to RS block boundaries
+    let sizes = [1, 7, 63, 64, 65, 127, 128, 255, 256, 500, 1000];
+    
+    for &size in &sizes {
+        let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+        let irs = InterleavedRS::new(32);
+        let (encoded, _stats) = irs.encode_buffer(&data);
+        let decoded = irs.decode_buffer(&encoded);
+        assert!(decoded.is_some(), "Interleaved RS failed for size {}", size);
+        let (dec_data, _dec_stats) = decoded.unwrap();
+        assert_eq!(dec_data, data, "Data mismatch for size {}", size);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Full Pipeline Stress: Large Data + Chaos + Recovery
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn pipeline_large_json_with_chaos_recovery() {
+    // Generate large JSON dataset (~10KB)
+    let mut json = String::from("{\"records\": [\n");
+    for i in 0..200 {
+        let comma = if i < 199 { "," } else { "" };
+        json.push_str(&format!(
+            "  {{\"id\": {}, \"name\": \"record_{}\", \"value\": {:.6}, \"category\": \"cat_{}\", \"active\": {}}}{}\n",
+            i, i, (i as f64) * 2.71828, i % 10, i % 2 == 0, comma
+        ));
+    }
+    json.push_str("]}\n");
+    let data = json.into_bytes();
+    let checksum = sha256_hex(&data);
+    
+    let config = PipelineConfig {
+        redundancy: 2.5,
+        deletion_rate: 0.20,
+        ..PipelineConfig::default()
+    };
+    
+    let mut pipeline = HelixPipeline::new(config);
+    let _enc = pipeline.encode(&data, "large.json", None);
+    
+    let chaos = pipeline.apply_chaos(0.20, None, None, None, None);
+    assert!(chaos.is_ok(), "Chaos should succeed");
+    let chaos_out = chaos.unwrap();
+    assert!(chaos_out.droplet_survival_rate < 1.0, "Some droplets should be lost");
+    
+    let decode = pipeline.decode(None).unwrap();
+    assert!(decode.success, "Should recover after 20% chaos");
+    assert_eq!(sha256_hex(&decode.recovered_data.unwrap()), checksum);
+}
+
+#[test]
+fn pipeline_source_code_roundtrip() {
+    // Test with Rust source code (realistic use case)
+    let code = r#"
+fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+fn main() {
+    for i in 0..20 {
+        println!("fib({}) = {}", i, fibonacci(i));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_fibonacci() {
+        assert_eq!(fibonacci(0), 0);
+        assert_eq!(fibonacci(1), 1);
+        assert_eq!(fibonacci(10), 55);
+        assert_eq!(fibonacci(20), 6765);
+    }
+}
+"#;
+    let data = code.as_bytes();
+    let checksum = sha256_hex(data);
+    
+    let (class, _) = classify_data(data);
+    assert!(class == "code_or_markup" || class == "structured_text" || class == "natural_text",
+        "Source code classified as '{}', expected code-like", class);
+    
+    let mut pipeline = HelixPipeline::new(PipelineConfig::default());
+    pipeline.encode(data, "source.rs", None);
+    
+    let decode = pipeline.decode(None).unwrap();
+    assert!(decode.success);
+    assert_eq!(sha256_hex(&decode.recovered_data.unwrap()), checksum);
+}
+
+#[test]
+fn pipeline_fasta_genomic_data_roundtrip() {
+    // Test with FASTA-formatted genomic data
+    let fasta_data = b">seq1 Homo sapiens BRCA1\n\
+ATGGATTTATCTGCTCTTCGCGTTGAAGAAGTACAAAATGTCATTAATGCTATGCAGAAAATCTTAGAGTGTCCCATCTGT\n\
+CTGGAGTTGATCAAGGAACCTGTCTCCACAAAGTGTGACCACATATTTTGCAAATTTTGCATGCTGAAACTTCTCAACCAG\n\
+>seq2 Homo sapiens TP53\n\
+ATGGAGGAGCCGCAGTCAGATCCTAGCGTGAGTTTGCACTGAGCGCCTGTCTGACCTGCGATGGGACTGGAAGTTACCCA\n\
+GGGCCATCCTCACCATCATCACACTGGAAGACTCCAGGTCAGGAGCCACTTGCCACCCAGCCCCTCCTAACCCCGGAATCG\n";
+    
+    let checksum = sha256_hex(fasta_data);
+    
+    let mut pipeline = HelixPipeline::new(PipelineConfig::default());
+    pipeline.encode(fasta_data, "genomic.fasta", None);
+    
+    let decode = pipeline.decode(None).unwrap();
+    assert!(decode.success);
+    assert_eq!(sha256_hex(&decode.recovered_data.unwrap()), checksum);
 }

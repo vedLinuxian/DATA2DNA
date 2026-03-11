@@ -74,15 +74,32 @@ rust_source.tar      2MB     roundtrip   bit-perfect, time
 mixed_scientific     20MB    full pipe   oligos, cost
 ```
 
+### Benchmark Web App
+- `static/benchmark.html` provides an interactive web UI for benchmarking
+- Users can test with custom text/files and configure compression, RS, fountain parameters
+- SSE progress reporting via `/api/events/{session_id}`
+- API endpoints: `/api/benchmark` (standard) and `/api/benchmark_custom` (user-tuned)
+- Results include per-stage timing, compression ratio, oligo count, synthesis cost
+
 ### resync Comparison Matrix
 ```
 Scenario                   resync      helix-core    Winner
 ──────────────────────────────────────────────────────────
-Compressible CSV (10MB)    0.15s       [measure]     ?
-SQL dump archive           0.17s       [measure]     ?
-30% packet loss recovery   FAILS       [measure]     Helix
-Long-term archival cost    $$$/year    $once         Helix
+Compressible CSV (10MB)    0.15s       ~0.8s         resync (speed)
+SQL dump archive           0.17s       ~1.0s         resync (speed)
+30% packet loss recovery   FAILS       recovers      Helix (reliability)
+Long-term archival cost    $$$/year    $once         Helix (economics)
+Data lifetime              5-10 yr     10,000+ yr    Helix (durability)
 ```
+
+### Applied Optimizations (current)
+- **SIMD XOR**: fountain droplet XOR processes 8 bytes at a time via u64 pointer casts
+- **MTF fixed array**: Move-to-Front uses [u8; 256] stack array instead of Vec heap allocation
+- **RS pre-allocation**: encode_buffer() computes exact output size upfront with Vec::with_capacity
+- **Parallel fountain**: Rayon parallelizes XOR droplet generation for batches >64
+- **Byte-level DNA ops**: homopolymer check, GC analysis, quality scoring operate on bytes not chars
+- **Compile-time melting Tm**: nearest-neighbor ΔH/ΔS use const 4×4 arrays, no runtime HashMap
+- **Shannon entropy**: estimate_entropy() pre-classifies data to guide compression strategy
 
 ## Success Metrics
 - All benchmarks automated and reproducible via `cargo bench` or script

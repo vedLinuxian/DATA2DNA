@@ -58,6 +58,137 @@ impl Default for PipelineConfig {
     }
 }
 
+/// Adaptive Redundancy Calculator
+///
+/// Novel algorithm: Calculates the minimum redundancy ratio needed to guarantee
+/// data recovery with probability ≥ (1 - target_failure_prob) given expected
+/// channel erasure/error rates per the DNA storage degradation model.
+///
+/// Based on information-theoretic bounds:
+/// - Shannon channel capacity for erasure channel: C = 1 - ε
+/// - Fountain code overhead: ~5% above capacity for Robust Soliton
+/// - RS correction budget: t = parity/2 errors per block
+///
+/// Returns optimal redundancy as a multiplier (e.g., 2.0 = 2x data).
+pub fn calculate_adaptive_redundancy(
+    data_size_bytes: usize,
+    expected_oligo_loss_rate: f64,
+    expected_substitution_rate: f64,
+    target_failure_prob: f64,
+) -> f64 {
+    // Channel capacity for erasure channel
+    let erasure_rate = expected_oligo_loss_rate.clamp(0.0, 0.99);
+    let channel_capacity = 1.0 - erasure_rate;
+    
+    // Minimum redundancy from Shannon bound (must be > 1/C)
+    let shannon_min = if channel_capacity > 0.01 {
+        1.0 / channel_capacity
+    } else {
+        100.0 // Channel is essentially dead
+    };
+    
+    // Fountain code overhead factor (Robust Soliton with given failure prob)
+    // From Luby 2002: overhead ≈ c * sqrt(k) * ln(k/δ) / k
+    // For practical k (data blocks), this is typically 5-15%
+    let k = (data_size_bytes as f64 / 64.0).max(1.0); // number of blocks
+    let fountain_overhead = 1.0 + 0.025 * (k / target_failure_prob).ln() / k.sqrt();
+    
+    // RS correction budget overhead
+    // With RS(255,223), we can correct 16 errors per 255-byte block
+    // If substitution rate is high, we need more redundancy so RS can handle it
+    let rs_overhead = if expected_substitution_rate > 0.01 {
+        1.0 + expected_substitution_rate * 2.0 // Additional margin for RS
+    } else {
+        1.0
+    };
+    
+    // Safety margin based on target failure probability
+    let safety_margin = if target_failure_prob < 0.001 {
+        1.3 // 30% safety margin for 99.9% recovery
+    } else if target_failure_prob < 0.01 {
+        1.2 // 20% safety margin for 99% recovery
+    } else {
+        1.1 // 10% safety margin
+    };
+    
+    let optimal = shannon_min * fountain_overhead * rs_overhead * safety_margin;
+    
+    // Clamp to reasonable range
+    optimal.clamp(1.2, 10.0)
+}
+
+/// Shannon Entropy Estimator
+///
+/// Computes the first-order Shannon entropy H(X) = -Σ p(x) log2(p(x))
+/// of arbitrary byte data. Returns bits per byte (0.0 = perfectly uniform,
+/// 8.0 = maximum entropy / incompressible).
+///
+/// This is used for:
+/// - Compression strategy selection (low entropy → aggressive compression)
+/// - Data classification (text ~4-5 bits, compressed ~7.9+ bits)
+/// - Storage cost estimation (entropy determines minimum encoding cost)
+pub fn estimate_entropy(data: &[u8]) -> f64 {
+    if data.is_empty() { return 0.0; }
+    
+    let mut freq = [0u64; 256];
+    for &b in data {
+        freq[b as usize] += 1;
+    }
+    
+    let len = data.len() as f64;
+    let mut entropy = 0.0f64;
+    for &count in &freq {
+        if count > 0 {
+            let p = count as f64 / len;
+            entropy -= p * p.log2();
+        }
+    }
+    
+    // Round to 4 decimal places
+    (entropy * 10000.0).round() / 10000.0
+}
+
+/// Data Classification for Compression Strategy
+///
+/// Classifies input data to select optimal compression parameters.
+/// Returns (class_name, estimated_compressibility) where compressibility
+/// is a ratio estimate (e.g., 3.0 means ~3x compression expected).
+pub fn classify_data(data: &[u8]) -> (&'static str, f64) {
+    if data.is_empty() { return ("empty", 1.0); }
+    
+    let entropy = estimate_entropy(data);
+    let is_utf8 = std::str::from_utf8(data).is_ok();
+    
+    // Check for high repetition (useful for BWT/RLE)
+    let unique_bytes = {
+        let mut seen = [false; 256];
+        for &b in data {
+            seen[b as usize] = true;
+        }
+        seen.iter().filter(|&&s| s).count()
+    };
+    
+    let byte_ratio = unique_bytes as f64 / 256.0;
+    
+    if entropy < 1.0 {
+        ("highly_repetitive", 8.0 / entropy.max(0.1))
+    } else if entropy < 3.0 && is_utf8 {
+        ("structured_text", 8.0 / entropy)
+    } else if entropy < 4.5 && is_utf8 {
+        ("natural_text", 8.0 / entropy)
+    } else if entropy < 5.5 && is_utf8 {
+        ("code_or_markup", 8.0 / entropy)
+    } else if entropy > 7.8 && byte_ratio > 0.9 {
+        ("pre_compressed", 1.02) // Already near Shannon limit
+    } else if entropy > 7.0 {
+        ("high_entropy_binary", 8.0 / entropy)
+    } else if is_utf8 {
+        ("mixed_text", 8.0 / entropy)
+    } else {
+        ("binary_data", 8.0 / entropy)
+    }
+}
+
 // ========== Result types ==========
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,6 +214,10 @@ pub struct EncodeOutput {
     pub oligo_quality: Option<OligoQualityReport>,
     pub oligo_build_stats: Option<OligoBuildStats>,
     pub cost_estimate: Option<CostEstimate>,
+    // Entropy analysis
+    pub entropy_bits_per_byte: f64,
+    pub data_class: String,
+    pub estimated_compressibility: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -249,6 +384,12 @@ impl HelixPipeline {
         let pre_compress = data.len();
         let orig_data_checksum = hex_sha256(data);
 
+        // Stage 0: Entropy analysis & data classification
+        let entropy = estimate_entropy(data);
+        let (data_class_name, est_compressibility) = classify_data(data);
+        progress!(progress_cb, &format!("Entropy: {:.2} bits/byte, class={}, est. {:.1}x compressible",
+            entropy, data_class_name, est_compressibility), 3);
+
         // Stage 1: Compress (HyperCompress v2 or legacy)
         let (compressed_data, compression_stats) = if self.config.compression {
             progress!(progress_cb, "HyperCompress: Entropy analysis + parallel compression...", 5);
@@ -332,19 +473,19 @@ impl HelixPipeline {
 
         let pipeline_checksum = hex_sha256(&pipeline_data);
 
-        // Stage 3: Transcode to DNA
-        progress!(progress_cb, &format!("Transcoding {} bytes to DNA bases...", pipeline_data.len()), 30);
-        let transcode = self.transcoder.encode(&pipeline_data);
-        self.dna_sequence_full = transcode.sequence.clone();
-        progress!(progress_cb, &format!("Transcoded: {} bases, GC={:.1}%, key={}",
-            transcode.length, transcode.gc_content * 100.0, transcode.rotation_key), 38);
-
-        // Stage 4: Fountain codes
-        progress!(progress_cb, "Generating LT Fountain codes (Robust Soliton)...", 40);
+        // Stage 3: Fountain codes (operates on binary RS-protected data)
+        progress!(progress_cb, "Generating hybrid systematic/LT Fountain codes (Robust Soliton)...", 30);
         let fountain_encoded = self.fountain.encode(&pipeline_data);
         let fountain_stats = self.fountain.get_stats(&fountain_encoded);
         progress!(progress_cb, &format!("Fountain: {} droplets from {} blocks ({:.1}× redundancy)",
-            fountain_stats.num_droplets, fountain_stats.num_blocks, fountain_stats.redundancy_ratio), 50);
+            fountain_stats.num_droplets, fountain_stats.num_blocks, fountain_stats.redundancy_ratio), 40);
+
+        // Stage 4: Transcode to DNA
+        progress!(progress_cb, &format!("Transcoding {} bytes to DNA bases...", pipeline_data.len()), 42);
+        let transcode = self.transcoder.encode(&pipeline_data);
+        self.dna_sequence_full = transcode.sequence.clone();
+        progress!(progress_cb, &format!("Transcoded: {} bases, GC={:.1}%, key={}",
+            transcode.length, transcode.gc_content * 100.0, transcode.rotation_key), 50);
 
         // Stage 5: Build structured oligos with primers, index, CRC
         progress!(progress_cb, "Building structured oligos (primers + index + CRC)...", 52);
@@ -448,6 +589,9 @@ impl HelixPipeline {
             oligo_quality: Some(oligo_quality),
             oligo_build_stats: Some(oligo_build_stats),
             cost_estimate: Some(cost_estimate),
+            entropy_bits_per_byte: entropy,
+            data_class: data_class_name.to_string(),
+            estimated_compressibility: est_compressibility,
         };
 
         self.last_encode = Some(EncodeState {
@@ -506,7 +650,8 @@ impl HelixPipeline {
         } else {
             self.dna_sequence_full.clone()
         };
-        // BUG-06 FIX: Mutate the FULL sequence, not just first 2000 chars
+        // Apply chaos mutations to the full DNA sequence so degradation
+        // statistics accurately reflect the complete oligo pool
         let (mutated, mutation_summary) =
             self.chaos.mutate_sequence(&self.dna_sequence_full);
         let mutated_preview = if mutated.len() > 500 {
@@ -601,8 +746,10 @@ impl HelixPipeline {
         if encode_state.rs_enabled {
             progress!(progress_cb, &format!("Reed-Solomon decoding {} bytes (correcting errors)...", recovered_data.len()), 42);
 
-            // Try interleaved RS first (new format), fall back to standard RS
-            let rs_result = if self.use_interleaved_rs {
+            // BUG FIX: Use encode_state flags, not self flags.
+            // If config changes between encode and decode, self.use_interleaved_rs
+            // could differ from what was used during encoding, causing decode failure.
+            let rs_result = if encode_state.use_interleaved_rs {
                 self.interleaved_rs.decode_buffer(&recovered_data)
                     .map(|(d, s)| (d, s.to_rs_stats()))
             } else {
@@ -643,8 +790,8 @@ impl HelixPipeline {
         progress!(progress_cb, &format!("Decompressing {} bytes...", recovered_data.len()), 55);
         let mut decompression_stats = None;
         if encode_state.compression_enabled {
-            // Try HyperCompress first, then fall back to legacy
-            let decompress_result = if self.use_hypercompress {
+            // BUG FIX: Use encode_state flags to match the compressor used during encode.
+            let decompress_result = if encode_state.use_hypercompress {
                 self.hypercompressor.decompress(&recovered_data)
             } else {
                 self.compressor.decompress(&recovered_data)
@@ -1118,5 +1265,68 @@ mod tests {
 
             assert!(dec.data_match, "{} should roundtrip correctly", name);
         }
+    }
+
+    // ========== Entropy & Data Classification Tests ==========
+
+    #[test]
+    fn test_entropy_uniform() {
+        // All same bytes → zero entropy
+        let data = vec![0u8; 1000];
+        let e = estimate_entropy(&data);
+        assert!(e < 0.01, "Uniform data should have ~0 entropy, got {}", e);
+    }
+
+    #[test]
+    fn test_entropy_max() {
+        // All 256 byte values appearing equally → 8.0 bits
+        let data: Vec<u8> = (0..=255).cycle().take(256 * 100).collect();
+        let e = estimate_entropy(&data);
+        assert!((e - 8.0).abs() < 0.01, "Max entropy data should be ~8.0, got {}", e);
+    }
+
+    #[test]
+    fn test_entropy_text() {
+        let data = "The quick brown fox jumps over the lazy dog. ".repeat(100);
+        let e = estimate_entropy(data.as_bytes());
+        assert!(e > 3.5 && e < 5.5, "English text entropy should be ~4-5 bits, got {}", e);
+    }
+
+    #[test]
+    fn test_classify_data() {
+        let repetitive = vec![0xAA_u8; 10000];
+        let (class, ratio) = classify_data(&repetitive);
+        assert_eq!(class, "highly_repetitive");
+        assert!(ratio > 5.0, "Repetitive data should be highly compressible");
+
+        let text = "Hello world, this is a test of classification. ".repeat(200);
+        let (class, _ratio) = classify_data(text.as_bytes());
+        assert!(class == "natural_text" || class == "structured_text" || class == "mixed_text",
+            "Text should be classified as text variant, got {}", class);
+
+        let binary: Vec<u8> = (0..=255).cycle().take(10000).collect();
+        let (class, ratio) = classify_data(&binary);
+        assert!(class == "pre_compressed" || class == "high_entropy_binary",
+            "High entropy data class should reflect that, got {}", class);
+        assert!(ratio < 1.5, "High entropy should not be very compressible");
+    }
+
+    #[test]
+    fn test_adaptive_redundancy() {
+        // Low loss → low redundancy
+        let r1 = calculate_adaptive_redundancy(10000, 0.05, 0.01, 0.01);
+        assert!(r1 < 2.5, "Low loss should need < 2.5x, got {}", r1);
+
+        // High loss → high redundancy
+        let r2 = calculate_adaptive_redundancy(10000, 0.50, 0.05, 0.001);
+        assert!(r2 > 2.5, "High loss should need > 2.5x, got {}", r2);
+
+        // Monotonic: higher loss → higher redundancy
+        assert!(r2 > r1, "More loss should require more redundancy");
+
+        // Stricter failure prob → higher redundancy
+        let r3 = calculate_adaptive_redundancy(10000, 0.15, 0.02, 0.0001);
+        let r4 = calculate_adaptive_redundancy(10000, 0.15, 0.02, 0.1);
+        assert!(r3 > r4, "Stricter failure prob should need more redundancy");
     }
 }

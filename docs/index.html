@@ -608,13 +608,13 @@ footer a:hover { color: var(--fg); }
       </div>
       <div class="cell">
         <span class="cell-num">03</span>
-        <span class="cell-name">Transcoder</span>
-        <span class="cell-desc">2&#8209;bit encoding (A=00, C=01, G=10, T=11) with rotation cipher for GC balance.</span>
+        <span class="cell-name">Fountain Codes</span>
+        <span class="cell-desc">Hybrid systematic/LT code: systematic phase for baseline coverage, then Robust Soliton LT droplets (c=0.025, &delta;=0.001). Operates on binary data.</span>
       </div>
       <div class="cell">
         <span class="cell-num">04</span>
-        <span class="cell-name">Fountain Codes</span>
-        <span class="cell-desc">LT codes with Robust Soliton distribution (c=0.025, &delta;=0.001). Provides erasure tolerance.</span>
+        <span class="cell-name">Transcoder</span>
+        <span class="cell-desc">2&#8209;bit encoding (A=00, C=01, G=10, T=11) with rotation cipher for GC balance. Converts RS&#8209;protected binary to DNA bases.</span>
       </div>
       <div class="cell">
         <span class="cell-num">05</span>
@@ -1043,6 +1043,7 @@ footer a:hover { color: var(--fg); }
     <h3>Limitations</h3>
     <ul style="margin:16px 0 32px 20px;color:var(--fg2);">
       <li><strong>No wet-lab validation.</strong> Output has not been physically synthesized or sequenced.</li>
+      <li>No RS erasure decoding — only error correction (t=16). Erasure mode (2t=32 known positions) not yet implemented.</li>
       <li>No random access — entire archive must be decoded to retrieve any file</li>
       <li>No indel error correction (substitution-only model in chaos simulation)</li>
       <li>Compression is ineffective on pre-compressed or binary data</li>
@@ -1051,6 +1052,7 @@ footer a:hover { color: var(--fg); }
 
     <h3>Roadmap</h3>
     <ul style="margin:16px 0 0 20px;color:var(--fg2);">
+      <li>RS erasure decoding for known-position recovery (2t=32 symbols, target: v5.1.0)</li>
       <li>Physical synthesis demo with Twist/IDT (target: v5.1.0)</li>
       <li>PCR-based random access (Organick 2018 approach)</li>
       <li>Nanopore sequencing integration</li>

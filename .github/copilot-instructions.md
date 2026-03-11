@@ -35,25 +35,26 @@ CHAOS:  Simulate DNA degradation (oligo loss, substitution, insertion errors)
 - Parallel computation via Rayon (compression trials, oligo screening)
 - Actix-web 4 for the HTTP server with SSE progress reporting
 - All public APIs must have doc comments
-- Every pipeline change must pass `cargo test` (70+ existing tests)
+- Every pipeline change must pass `cargo test` (165+ existing tests)
 
 ## Module Map
 | Module | Purpose |
 |--------|---------|
-| `hypercompress.rs` | Multi-stage maximum compression engine |
-| `pipeline.rs` | Pipeline orchestrator connecting all modules |
-| `fountain.rs` | Fountain/LT codes with Soliton distribution |
-| `reed_solomon.rs` | GF(2^8) RS codec with Berlekamp-Massey |
-| `interleaved_rs.rs` | Cross-oligo RS protection |
+| `hypercompress.rs` | Multi-stage maximum compression engine (BWT+MTF+ZRLE, BPE, ZSTD/Brotli) |
+| `pipeline.rs` | Pipeline orchestrator, entropy estimator, data classifier, adaptive redundancy |
+| `fountain.rs` | Fountain/LT codes with Soliton distribution, Rayon-parallel XOR encoding |
+| `reed_solomon.rs` | GF(2^8) RS codec: errors, erasures, combined E&E via Forney syndromes |
+| `interleaved_rs.rs` | Cross-oligo RS protection with variable depth (4/16/64) |
 | `transcoder.rs` | 2-bit DNA encoding with rotation cipher |
-| `oligo_builder.rs` | Structured oligo construction with CRC |
-| `dna_constraints.rs` | Biological constraint screening |
+| `oligo_builder.rs` | Structured oligo construction with CRC, byte-level quality scoring |
+| `dna_constraints.rs` | Biological constraint screening, compile-time melting Tm tables |
 | `fasta.rs` | FASTA I/O with metadata embedding |
-| `cost_estimator.rs` | Commercial synthesis cost modeling |
-| `chaos.rs` | DNA degradation simulation |
+| `cost_estimator.rs` | Commercial synthesis cost modeling (Twist/IDT/GenScript) |
+| `chaos.rs` | DNA degradation simulation (loss, substitution, insertion) |
 | `consensus.rs` | Consensus decoder (fountain wrapper) |
 | `compressor.rs` | Legacy single-algorithm compressor |
-| `main.rs` | Actix-web HTTP server |
+| `main.rs` | Actix-web 4 HTTP server with SSE, multipart, CORS |
+| `lib.rs` | Public API re-exports (PipelineConfig, HelixPipeline, entropy, classify) |
 
 ## Available Agents
 Activate these specialized agents in `.github/agents/`:

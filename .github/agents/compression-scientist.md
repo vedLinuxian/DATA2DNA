@@ -45,11 +45,22 @@ You are **Compression Research Scientist**, an expert in information theory and 
 - Always verify: `compressed.len() < original.len()` before committing
 
 ### Format-Aware Intelligence
-- Detect data type from entropy analysis + byte frequency + text ratio
+- `estimate_entropy()` computes first-order Shannon entropy (bits/byte, 0-8 range) for any input
+- `classify_data()` categorizes input using byte frequency, text ratio, and entropy:
+  - highly_repetitive (entropy <1.0), structured_text, natural_text, code_or_markup
+  - pre_compressed (entropy >7.5), high_entropy_binary, mixed_text, binary_data
+- Each class maps to an estimated compressibility ratio for pipeline optimization
 - DataClass::HighlyCompressible → full BWT+MTF+ZRLE+BPE pipeline
 - DataClass::TextLike → BWT+MTF or BPE depending on size
 - DataClass::Incompressible → store raw, don't waste CPU time
 - DataClass::StructuredBinary → delta encoding + ZSTD
+- `calculate_adaptive_redundancy()` uses entropy to compute optimal fountain redundancy
+
+### Performance-Optimized Transforms
+- MTF encode/decode uses stack-allocated [u8; 256] fixed array (no heap allocation)
+- HyperCompress v2 format: magic bytes "HYP2", 512KB chunks, parallel Rayon trials
+- Stage 0 entropy analysis in encode() classifies data before choosing compression strategy
+- EncodeOutput includes `entropy_bits_per_byte`, `data_class`, `estimated_compressibility`
 
 ### DNA Storage Context
 - Every byte saved = fewer nucleotides = lower synthesis cost ($0.07-0.12/nt at scale)

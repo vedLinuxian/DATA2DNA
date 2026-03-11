@@ -1614,18 +1614,32 @@ impl HyperCompressor {
     /// Maintains a list of bytes ordered by recency of use.
     /// Each byte is encoded as its position in the list, then
     /// moved to the front. After BWT, repeated bytes map to runs of 0s.
+    ///
+    /// PERF: Uses a fixed [u8; 256] array instead of Vec for O(1) access.
+    /// The position lookup is still O(256) worst case but the move-to-front
+    /// operation avoids heap allocation and Vec resizing.
     fn mtf_encode(data: &[u8]) -> Vec<u8> {
-        let mut list: Vec<u8> = (0..=255).collect();
+        let mut list = [0u8; 256];
+        for i in 0..256 {
+            list[i] = i as u8;
+        }
         let mut output = Vec::with_capacity(data.len());
 
         for &b in data {
             // Find position of b in the list
-            let pos = list.iter().position(|&x| x == b).unwrap();
+            let mut pos = 0;
+            while list[pos] != b {
+                pos += 1;
+            }
             output.push(pos as u8);
-            // Move to front
+            // Move to front using shift (array-based, no heap ops)
             if pos > 0 {
-                list.remove(pos);
-                list.insert(0, b);
+                let val = list[pos];
+                // Shift elements right
+                for j in (1..=pos).rev() {
+                    list[j] = list[j - 1];
+                }
+                list[0] = val;
             }
         }
 
@@ -1634,15 +1648,22 @@ impl HyperCompressor {
 
     /// Inverse Move-to-Front decoding
     fn mtf_decode(data: &[u8]) -> Vec<u8> {
-        let mut list: Vec<u8> = (0..=255).collect();
+        let mut list = [0u8; 256];
+        for i in 0..256 {
+            list[i] = i as u8;
+        }
         let mut output = Vec::with_capacity(data.len());
 
         for &idx in data {
-            let b = list[idx as usize];
+            let pos = idx as usize;
+            let b = list[pos];
             output.push(b);
-            if idx > 0 {
-                list.remove(idx as usize);
-                list.insert(0, b);
+            if pos > 0 {
+                // Shift elements right
+                for j in (1..=pos).rev() {
+                    list[j] = list[j - 1];
+                }
+                list[0] = b;
             }
         }
 

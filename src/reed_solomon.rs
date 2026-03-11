@@ -341,17 +341,225 @@ impl ReedSolomonCodec {
         Some((corrected[..self.data_symbols].to_vec(), ne))
     }
 
+    /// Erasure-only decoding: when positions of lost symbols are known.
+    ///
+    /// In DNA storage, oligo loss is detectable (missing sequence → known erasure
+    /// position). RS can correct up to 2t erasures (vs t errors), doubling
+    /// the recovery capacity.
+    ///
+    /// Algorithm: given erasure positions, construct the erasure locator polynomial
+    /// Λ(x) = Π(1 - α^{e_i}·x) for each erasure position e_i. Then compute the
+    /// modified syndromes T(x) = S(x)·Λ(x) mod x^{2t} and solve using Forney.
+    pub fn decode_erasures(&self, received: &[u8], erasure_positions: &[usize]) -> Option<(Vec<u8>, usize)> {
+        if received.len() != self.total_symbols { return None; }
+        let ne = erasure_positions.len();
+        if ne > self.parity_symbols { return None; } // Can correct at most 2t erasures
+        if ne == 0 {
+            return self.decode(received);
+        }
+
+        let n = self.total_symbols;
+        let s = self.syndromes(received);
+        if s.iter().all(|&v| v == 0) {
+            return Some((received[..self.data_symbols].to_vec(), 0));
+        }
+
+        // Build erasure locator polynomial: Λ(x) = Π(1 - α^{pos_i} · x)
+        // In ascending form: sigma[0]=1
+        let mut sigma = vec![1u8];
+        for &pos in erasure_positions {
+            // X_j = α^(n-1-pos), so the root factor is (1 - X_j · x) = (1 - α^(n-1-pos) · x)
+            let x_j = self.exp_table[(n - 1 - pos) % 255];
+            let mut new_sigma = vec![0u8; sigma.len() + 1];
+            for i in 0..sigma.len() {
+                new_sigma[i] ^= sigma[i];
+                new_sigma[i + 1] ^= self.mul(sigma[i], x_j);
+            }
+            sigma = new_sigma;
+        }
+
+        // Already have the error locator. Now solve using Forney.
+        let mags = self.forney(&s, &sigma, erasure_positions)?;
+
+        let mut corrected = received.to_vec();
+        for (i, &pos) in erasure_positions.iter().enumerate() {
+            corrected[pos] ^= mags[i];
+        }
+
+        // Verify correction
+        let sv = self.syndromes(&corrected);
+        if sv.iter().any(|&v| v != 0) { return None; }
+
+        Some((corrected[..self.data_symbols].to_vec(), ne))
+    }
+
+    /// Compute Forney syndromes by iteratively removing erasure contributions.
+    ///
+    /// Given syndromes and known erasure positions, this produces a shortened
+    /// syndrome sequence (length 2t - ν) that encodes only the error information.
+    /// Standard BM on these Forney syndromes yields the pure error locator.
+    fn forney_syndromes(
+        &self,
+        syndromes: &[u8],
+        erasure_positions: &[usize],
+    ) -> Vec<u8> {
+        let n = self.total_symbols;
+        let mut fsynd = syndromes.to_vec();
+
+        for &pos in erasure_positions {
+            let x = self.exp_table[(n - 1 - pos) % 255];
+            for j in 0..fsynd.len() - 1 {
+                fsynd[j] = self.mul(fsynd[j], x) ^ fsynd[j + 1];
+            }
+            fsynd.pop();
+        }
+
+        fsynd
+    }
+
+    /// Combined error-and-erasure decoding: the most powerful RS decoding mode.
+    ///
+    /// In DNA storage, some oligos are lost entirely (erasures at known positions)
+    /// while surviving oligos may contain base substitutions (errors at unknown
+    /// positions). The fundamental RS constraint is:
+    ///
+    ///   2 × errors + erasures ≤ 2t
+    ///
+    /// For RS(255,223) with 2t=32: e.g., 10 erasures + 11 errors = 32 ✓
+    ///
+    /// Algorithm (Forney syndromes approach):
+    /// 1. Compute syndromes S(x)
+    /// 2. Build erasure locator Λ_e(x) = Π(1 - X_j · x)
+    /// 3. Compute Forney syndromes (remove erasure effects from S)
+    /// 4. Run standard BM on Forney syndromes → error locator σ_err(x)
+    /// 5. Combined locator σ(x) = σ_err(x) · Λ_e(x)
+    /// 6. Chien search + Forney algorithm for correction magnitudes
+    pub fn decode_errors_and_erasures(
+        &self,
+        received: &[u8],
+        erasure_positions: &[usize],
+    ) -> Option<(Vec<u8>, usize, usize)> {
+        if received.len() != self.total_symbols { return None; }
+        let nu = erasure_positions.len();
+        let two_t = self.parity_symbols;
+
+        if nu > two_t { return None; }
+
+        // Trivially defer if no erasures
+        if nu == 0 {
+            let (data, ne) = self.decode(received)?;
+            return Some((data, ne, 0));
+        }
+
+        let n = self.total_symbols;
+        let s = self.syndromes(received);
+        if s.iter().all(|&v| v == 0) {
+            return Some((received[..self.data_symbols].to_vec(), 0, 0));
+        }
+
+        // Build erasure locator Λ_e(x) = Π(1 - X_j · x)
+        let mut lambda_e = vec![1u8];
+        for &pos in erasure_positions {
+            let x_j = self.exp_table[(n - 1 - pos) % 255];
+            let mut new_le = vec![0u8; lambda_e.len() + 1];
+            for i in 0..lambda_e.len() {
+                new_le[i] ^= lambda_e[i];
+                new_le[i + 1] ^= self.mul(lambda_e[i], x_j);
+            }
+            lambda_e = new_le;
+        }
+
+        // No remaining error capacity → pure erasure decode
+        if nu == two_t {
+            return self.decode_erasures(received, erasure_positions)
+                .map(|(data, ne)| (data, 0, ne));
+        }
+
+        // Compute Forney syndromes: removes erasure effects, length = 2t - ν
+        let fsynd = self.forney_syndromes(&s, erasure_positions);
+
+        if fsynd.iter().all(|&v| v == 0) {
+            // No additional errors, only erasures
+            return self.decode_erasures(received, erasure_positions)
+                .map(|(data, ne)| (data, 0, ne));
+        }
+
+        // Standard BM on Forney syndromes → error locator σ_err(x)
+        let sigma_err = self.berlekamp_massey(&fsynd)?;
+        let num_errors = sigma_err.len() - 1;
+
+        // Check the fundamental RS constraint
+        if 2 * num_errors + nu > two_t {
+            return None;
+        }
+
+        if num_errors == 0 {
+            // Only erasures
+            return self.decode_erasures(received, erasure_positions)
+                .map(|(data, ne)| (data, 0, ne));
+        }
+
+        // Combined locator σ(x) = σ_err(x) · Λ_e(x)
+        let mut sigma_combined = vec![0u8; sigma_err.len() + lambda_e.len() - 1];
+        for (i, &a) in sigma_err.iter().enumerate() {
+            for (j, &b) in lambda_e.iter().enumerate() {
+                sigma_combined[i + j] ^= self.mul(a, b);
+            }
+        }
+
+        // Chien search on combined locator
+        let total_ne = sigma_combined.len() - 1;
+        let mut all_positions = Vec::with_capacity(total_ne);
+        for j in 0..n {
+            let power = (256 + j - n) % 255;
+            let x_inv = self.exp_table[power];
+            let mut val = 0u8;
+            let mut x_pow = 1u8;
+            for &c in &sigma_combined {
+                val ^= self.mul(c, x_pow);
+                x_pow = self.mul(x_pow, x_inv);
+            }
+            if val == 0 {
+                all_positions.push(j);
+            }
+        }
+
+        if all_positions.len() != total_ne {
+            return None; // Couldn't locate all errors+erasures
+        }
+
+        // Forney algorithm for correction magnitudes
+        let mags = self.forney(&s, &sigma_combined, &all_positions)?;
+
+        let mut corrected = received.to_vec();
+        for (i, &pos) in all_positions.iter().enumerate() {
+            corrected[pos] ^= mags[i];
+        }
+
+        // Verify correction
+        let sv = self.syndromes(&corrected);
+        if sv.iter().any(|&v| v != 0) { return None; }
+
+        let error_count = all_positions.iter()
+            .filter(|p| !erasure_positions.contains(p))
+            .count();
+
+        Some((corrected[..self.data_symbols].to_vec(), error_count, nu))
+    }
+
     // ——— Buffer API ———
 
     pub fn encode_buffer(&self, data: &[u8]) -> (Vec<u8>, RSStats) {
         let len_bytes = (data.len() as u64).to_le_bytes();
         let mut buf = len_bytes.to_vec();
         buf.extend_from_slice(data);
-        let mut encoded = Vec::new();
-        let mut blocks = 0usize;
+        
+        // PERF: Pre-allocate exact output size to avoid reallocation
+        let num_blocks = (buf.len() + self.data_symbols - 1) / self.data_symbols;
+        let mut encoded = Vec::with_capacity(num_blocks * self.total_symbols);
+        
         for chunk in buf.chunks(self.data_symbols) {
             encoded.extend_from_slice(&self.encode(chunk));
-            blocks += 1;
         }
         (encoded, RSStats {
             data_symbols: self.data_symbols,
@@ -359,7 +567,7 @@ impl ReedSolomonCodec {
             total_symbols: self.total_symbols,
             max_correctable_errors: self.parity_symbols / 2,
             overhead_percent: (self.parity_symbols as f64 / self.data_symbols as f64 * 1000.0).round() / 10.0,
-            blocks_encoded: blocks, blocks_corrected: 0, total_errors_corrected: 0,
+            blocks_encoded: num_blocks, blocks_corrected: 0, total_errors_corrected: 0,
         })
     }
 
@@ -454,5 +662,186 @@ mod tests {
         let (dec, stats) = result.unwrap();
         assert_eq!(dec, data);
         assert!(stats.total_errors_corrected > 0);
+    }
+
+    #[test]
+    fn test_exactly_at_correction_limit() {
+        // RS(255,223) has t = parity/2 = 16, must correct exactly 16 errors
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| i as u8).collect();
+        let mut cw = rs.encode(&data);
+        // Introduce exactly t=16 errors (maximum correctable)
+        for &p in &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] {
+            cw[p] ^= 0xFF;
+        }
+        let result = rs.decode(&cw);
+        assert!(result.is_some(), "Must correct exactly 16 errors");
+        let (dec, ne) = result.unwrap();
+        assert_eq!(ne, 16);
+        assert_eq!(dec, data);
+    }
+
+    #[test]
+    fn test_beyond_correction_limit_returns_none() {
+        // RS(255,223) cannot correct t+1 = 17 errors, must fail gracefully
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| i as u8).collect();
+        let mut cw = rs.encode(&data);
+        // Introduce t+1 = 17 errors (beyond correction capacity)
+        for &p in &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] {
+            cw[p] ^= 0xFF;
+        }
+        // Must fail gracefully, never panic
+        assert!(rs.decode(&cw).is_none(), "Must return None for 17 errors");
+    }
+
+    #[test]
+    fn test_erasure_decoding() {
+        // RS(255,223) can correct 2t=32 erasures (vs 16 errors)
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| (i * 3 % 256) as u8).collect();
+        let mut cw = rs.encode(&data);
+        
+        // Erase 20 known positions (well within 2t=32 limit)
+        let erasure_positions: Vec<usize> = (0..20).collect();
+        for &pos in &erasure_positions {
+            cw[pos] = 0; // Zero out (simulating known loss)
+        }
+        
+        let result = rs.decode_erasures(&cw, &erasure_positions);
+        assert!(result.is_some(), "Should correct 20 erasures (limit is 32)");
+        let (dec, ne) = result.unwrap();
+        assert_eq!(ne, 20);
+        assert_eq!(dec, data);
+    }
+
+    #[test]
+    fn test_erasure_at_max_capacity() {
+        // Test at the maximum: 2t=32 erasures
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| (i * 7 + 13) as u8).collect();
+        let mut cw = rs.encode(&data);
+        
+        let erasure_positions: Vec<usize> = (0..32).collect();
+        for &pos in &erasure_positions {
+            cw[pos] = 0;
+        }
+        
+        let result = rs.decode_erasures(&cw, &erasure_positions);
+        assert!(result.is_some(), "Should correct exactly 32 erasures (2t limit)");
+        let (dec, _) = result.unwrap();
+        assert_eq!(dec, data);
+    }
+
+    #[test]
+    fn test_erasure_beyond_capacity() {
+        // 33 erasures > 2t=32, should fail
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| i as u8).collect();
+        let mut cw = rs.encode(&data);
+        
+        let erasure_positions: Vec<usize> = (0..33).collect();
+        for &pos in &erasure_positions {
+            cw[pos] = 0;
+        }
+        
+        assert!(rs.decode_erasures(&cw, &erasure_positions).is_none(),
+            "Must fail for 33 erasures (beyond 2t=32)");
+    }
+
+    #[test]
+    fn test_combined_error_and_erasure() {
+        // 2*errors + erasures ≤ 2t=32
+        // Test: 10 erasures + 11 errors = 32 ≤ 32 ✓
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| (i * 11 % 256) as u8).collect();
+        let mut cw = rs.encode(&data);
+        
+        // 10 erasures at known positions (front)
+        let erasure_positions: Vec<usize> = (0..10).collect();
+        for &pos in &erasure_positions {
+            cw[pos] = 0; // Zero out
+        }
+        
+        // 11 errors at unknown positions (different from erasures)
+        for &p in &[50, 70, 90, 110, 130, 150, 170, 190, 200, 210, 220] {
+            cw[p] ^= 0xAB;
+        }
+        
+        let result = rs.decode_errors_and_erasures(&cw, &erasure_positions);
+        assert!(result.is_some(), "Should correct 10 erasures + 11 errors (=32 ≤ 2t)");
+        let (dec, err_count, era_count) = result.unwrap();
+        assert_eq!(dec, data);
+        assert_eq!(err_count, 11);
+        assert_eq!(era_count, 10);
+    }
+
+    #[test]
+    fn test_combined_at_limit() {
+        // Maximum: 16 erasures + 8 errors = 32 = 2t
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| (i * 3 + 7) as u8).collect();
+        let mut cw = rs.encode(&data);
+        
+        let erasure_positions: Vec<usize> = (0..16).collect();
+        for &pos in &erasure_positions {
+            cw[pos] = 0;
+        }
+        
+        // 8 errors at non-erasure positions
+        for &p in &[100, 110, 120, 130, 140, 150, 160, 170] {
+            cw[p] ^= 0xFF;
+        }
+        
+        let result = rs.decode_errors_and_erasures(&cw, &erasure_positions);
+        assert!(result.is_some(), "Should correct 16 erasures + 8 errors (=32 = 2t)");
+        let (dec, err_count, era_count) = result.unwrap();
+        assert_eq!(dec, data);
+        assert_eq!(err_count, 8);
+        assert_eq!(era_count, 16);
+    }
+
+    #[test]
+    fn test_combined_exceeds_limit() {
+        // 20 erasures + 7 errors = 34 > 2t=32, should fail
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| i as u8).collect();
+        let mut cw = rs.encode(&data);
+        
+        let erasure_positions: Vec<usize> = (0..20).collect();
+        for &pos in &erasure_positions {
+            cw[pos] = 0;
+        }
+        
+        // 7 errors
+        for &p in &[100, 110, 120, 130, 140, 150, 160] {
+            cw[p] ^= 0xFF;
+        }
+        
+        // This may or may not succeed depending on the geometry.
+        // But if it succeeds, it must return correct data.
+        let result = rs.decode_errors_and_erasures(&cw, &erasure_positions);
+        if let Some((dec, _, _)) = result {
+            assert_eq!(dec, data, "If decoding succeeds, data must be correct");
+        }
+    }
+
+    #[test]
+    fn test_combined_no_erasures_falls_back() {
+        // With 0 erasures, should behave like standard decode
+        let rs = ReedSolomonCodec::new(223, 32);
+        let data: Vec<u8> = (0..223).map(|i| (i * 5 % 256) as u8).collect();
+        let mut cw = rs.encode(&data);
+        
+        for &p in &[10, 20, 30, 40, 50] {
+            cw[p] ^= 0xFF;
+        }
+        
+        let result = rs.decode_errors_and_erasures(&cw, &[]);
+        assert!(result.is_some(), "Should correct 5 errors with 0 erasures");
+        let (dec, err_count, era_count) = result.unwrap();
+        assert_eq!(dec, data);
+        assert_eq!(err_count, 5);
+        assert_eq!(era_count, 0);
     }
 }

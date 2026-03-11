@@ -225,25 +225,25 @@ impl DNAConstraints {
         }
     }
 
+    /// PERF: Operates directly on bytes (valid DNA is ASCII), avoiding Vec<char> allocation.
     fn check_homopolymer(&self, seq: &str, oligo_idx: usize) -> Vec<Violation> {
         let mut violations = Vec::new();
-        let chars: Vec<char> = seq.chars().collect();
-        if chars.is_empty() { return violations; }
+        let bytes = seq.as_bytes();
+        if bytes.is_empty() { return violations; }
 
-        let mut run = 1;
-        let mut run_start = 0;
-        for i in 1..chars.len() {
-            if chars[i] == chars[i - 1] {
+        let mut run = 1usize;
+        let mut run_start = 0usize;
+        for i in 1..bytes.len() {
+            if bytes[i] == bytes[i - 1] {
                 run += 1;
             } else {
-                // Report once per completed run if it exceeded the threshold
                 if run > self.max_homopolymer {
                     violations.push(Violation {
                         oligo_index: oligo_idx,
                         position: run_start,
                         violation_type: "homopolymer".to_string(),
                         detail: format!("{}×{} at pos {} (max allowed: {})",
-                            chars[run_start], run, run_start, self.max_homopolymer),
+                            bytes[run_start] as char, run, run_start, self.max_homopolymer),
                         severity: if run > 5 { "critical" } else { "warning" }.to_string(),
                     });
                 }
@@ -251,14 +251,13 @@ impl DNAConstraints {
                 run_start = i;
             }
         }
-        // Check final run
         if run > self.max_homopolymer {
             violations.push(Violation {
                 oligo_index: oligo_idx,
                 position: run_start,
                 violation_type: "homopolymer".to_string(),
                 detail: format!("{}×{} at pos {} (max allowed: {})",
-                    chars[run_start], run, run_start, self.max_homopolymer),
+                    bytes[run_start] as char, run, run_start, self.max_homopolymer),
                 severity: if run > 5 { "critical" } else { "warning" }.to_string(),
             });
         }
@@ -316,6 +315,7 @@ impl DNAConstraints {
         violations
     }
 
+    /// PERF: Uses byte-level GC counting instead of Vec<char> conversion.
     fn analyze_gc_windows(&self, oligos: &[&str]) -> GCWindowStats {
         if self.gc_window_size == 0 {
             return GCWindowStats {
@@ -329,19 +329,20 @@ impl DNAConstraints {
             };
         }
 
-        // BUG-10 FIX: Analyze GC windows per-oligo to avoid crossing oligo boundaries
+        // Analyze GC windows within each oligo independently — sliding a window
+        // across concatenated oligos would alias boundary regions between unrelated sequences
         let mut gc_values = Vec::new();
         let step = (self.gc_window_size / 2).max(1);
 
         for oligo in oligos {
-            let chars: Vec<char> = oligo.chars().collect();
+            let bytes = oligo.as_bytes();
             let mut i = 0;
-            while i + self.gc_window_size <= chars.len() {
-                let window = &chars[i..i + self.gc_window_size];
-                let gc = window.iter().filter(|&&c| c == 'G' || c == 'C').count() as f64
-                    / self.gc_window_size as f64;
+            while i + self.gc_window_size <= bytes.len() {
+                let gc = bytes[i..i + self.gc_window_size].iter()
+                    .filter(|&&b| b == b'G' || b == b'C')
+                    .count() as f64 / self.gc_window_size as f64;
                 gc_values.push(gc);
-                i += step; // Overlapping windows within same oligo
+                i += step;
             }
         }
 
@@ -368,18 +369,19 @@ impl DNAConstraints {
         }
     }
 
+    /// PERF: Byte-level analysis, no char conversion.
     fn analyze_homopolymers(&self, oligos: &[&str]) -> HomopolymerStats {
         let mut max_run = 0usize;
         let mut total_violations = 0usize;
         let mut dist: HashMap<usize, usize> = HashMap::new();
 
         for oligo in oligos {
-            let chars: Vec<char> = oligo.chars().collect();
-            if chars.is_empty() { continue; }
+            let bytes = oligo.as_bytes();
+            if bytes.is_empty() { continue; }
 
-            let mut run = 1;
-            for i in 1..chars.len() {
-                if chars[i] == chars[i - 1] {
+            let mut run = 1usize;
+            for i in 1..bytes.len() {
+                if bytes[i] == bytes[i - 1] {
                     run += 1;
                 } else {
                     if run >= 2 {
@@ -469,46 +471,56 @@ pub fn reverse_complement(seq: &str) -> String {
 }
 
 /// Calculate melting temperature (nearest-neighbor method, simplified)
+/// PERF: Uses compile-time lookup array instead of runtime HashMap allocations.
 pub fn melting_temperature(seq: &str) -> f64 {
     let len = seq.len();
     if len < 8 { return 0.0; }
 
-    // Nearest-neighbor ΔH and ΔS values (kcal/mol and cal/mol·K)
-    let nn_dh: HashMap<&str, f64> = [
-        ("AA", -7.9), ("TT", -7.9), ("AT", -7.2), ("TA", -7.2),
-        ("CA", -8.5), ("TG", -8.5), ("GT", -8.4), ("AC", -8.4),
-        ("CT", -7.8), ("AG", -7.8), ("GA", -8.2), ("TC", -8.2),
-        ("CG", -10.6), ("GC", -9.8), ("GG", -8.0), ("CC", -8.0),
-    ].into_iter().collect();
+    // Encode base pair → index: AA=0, AT=1, ..., TT=15
+    // Row = first base (A=0,C=1,G=2,T=3), Col = second base
+    // Nearest-neighbor ΔH (kcal/mol) — row-major [first][second]
+    const NN_DH: [[f64; 4]; 4] = [
+        // A       C       G       T       (second base)
+        [-7.9,  -8.4,  -7.8,  -7.2],  // A (first)
+        [-8.5,  -8.0,  -10.6, -7.8],  // C
+        [-8.2,  -9.8,  -8.0,  -8.4],  // G
+        [-7.2,  -8.5,  -8.2,  -7.9],  // T
+    ];
+    // Nearest-neighbor ΔS (cal/mol·K)
+    const NN_DS: [[f64; 4]; 4] = [
+        [-22.2, -22.4, -21.0, -20.4],  // A
+        [-22.7, -19.9, -27.2, -21.0],  // C
+        [-22.2, -24.4, -19.9, -22.4],  // G
+        [-21.3, -22.7, -22.2, -22.2],  // T
+    ];
 
-    let nn_ds: HashMap<&str, f64> = [
-        ("AA", -22.2), ("TT", -22.2), ("AT", -20.4), ("TA", -21.3),
-        ("CA", -22.7), ("TG", -22.7), ("GT", -22.4), ("AC", -22.4),
-        ("CT", -21.0), ("AG", -21.0), ("GA", -22.2), ("TC", -22.2),
-        ("CG", -27.2), ("GC", -24.4), ("GG", -19.9), ("CC", -19.9),
-    ].into_iter().collect();
+    #[inline]
+    fn base_idx(b: u8) -> Option<usize> {
+        match b {
+            b'A' | b'a' => Some(0),
+            b'C' | b'c' => Some(1),
+            b'G' | b'g' => Some(2),
+            b'T' | b't' => Some(3),
+            _ => None,
+        }
+    }
 
-    let chars: Vec<char> = seq.chars().collect();
+    let bytes = seq.as_bytes();
     let mut total_dh = 0.0f64;
     let mut total_ds = 0.0f64;
 
-    for i in 0..chars.len() - 1 {
-        let pair: String = chars[i..=i+1].iter().collect();
-        let pair_upper = pair.to_uppercase();
-        if let Some(&dh) = nn_dh.get(pair_upper.as_str()) {
-            total_dh += dh;
-        }
-        if let Some(&ds) = nn_ds.get(pair_upper.as_str()) {
-            total_ds += ds;
+    for i in 0..bytes.len() - 1 {
+        if let (Some(a), Some(b)) = (base_idx(bytes[i]), base_idx(bytes[i + 1])) {
+            total_dh += NN_DH[a][b];
+            total_ds += NN_DS[a][b];
         }
     }
 
     // Initiation parameters
-    total_dh += 0.1; // ΔH initiation
-    total_ds += -2.8; // ΔS initiation
+    total_dh += 0.1;
+    total_ds += -2.8;
 
     // Tm = ΔH / (ΔS + R * ln(Ct/4)) - 273.15
-    // Ct = 250nM (typical oligo concentration)
     let r = 1.987; // cal/(mol·K)
     let ct: f64 = 250e-9; // 250 nM
     let tm = (total_dh * 1000.0) / (total_ds + r * (ct / 4.0_f64).ln()) - 273.15;

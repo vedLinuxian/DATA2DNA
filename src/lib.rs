@@ -21,3 +21,6 @@ pub mod hypercompress;
 pub mod dna_constraints;
 pub mod cost_estimator;
 pub mod oligo_builder;
+
+// Re-export key types for convenience
+pub use pipeline::{calculate_adaptive_redundancy, estimate_entropy, classify_data, PipelineConfig, HelixPipeline};

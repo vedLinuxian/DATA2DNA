@@ -140,7 +140,7 @@ impl FastaIO {
         let mut meta_filename = String::new();
         let mut meta_checksum = String::new();
         let mut meta_block_size = 64usize;
-        let mut meta_redundancy = 1.5f64;
+        let mut meta_redundancy = 2.0f64; // BUG FIX: Match PipelineConfig::default() which is 2.0
         let mut meta_seed = 42u64;
         let mut has_meta = false;
 

@@ -347,37 +347,54 @@ impl OligoBuilder {
 
 // ═══════════ Quality Scoring ═══════════
 
+/// PERF: Single-pass byte-level quality scoring, no Vec<char> allocations.
 fn compute_oligo_quality(seq: &str) -> f64 {
     if seq.is_empty() { return 0.0; }
 
+    let bytes = seq.as_bytes();
     let mut score = 1.0;
 
-    // 1. GC balance (target 40-60%)
-    let gc = seq.chars().filter(|&c| c == 'G' || c == 'C').count() as f64 / seq.len() as f64;
+    // 1. GC balance (target 40-60%) — counted in single pass with homopolymer
+    let mut gc_count = 0usize;
+    let mut max_run = 1usize;
+    let mut run = 1usize;
+    for i in 0..bytes.len() {
+        if bytes[i] == b'G' || bytes[i] == b'C' {
+            gc_count += 1;
+        }
+        if i > 0 {
+            if bytes[i] == bytes[i - 1] {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 1;
+            }
+        }
+    }
+    let gc = gc_count as f64 / bytes.len() as f64;
     let gc_dev = (gc - 0.5).abs();
-    score -= gc_dev * 1.5; // Penalize GC deviation
+    score -= gc_dev * 1.5;
 
-    // 2. Homopolymer runs
-    let max_run = max_homopolymer_run(seq);
+    // 2. Homopolymer runs (already computed above)
     if max_run > 3 {
         score -= (max_run - 3) as f64 * 0.1;
     }
 
-    // 3. Local GC uniformity (check 20bp windows)
-    let chars: Vec<char> = seq.chars().collect();
+    // 3. Local GC uniformity (check 20-byte windows)
     let window = 20;
     let mut gc_variance = 0.0;
     let mut n_windows = 0;
     let mut i = 0;
-    while i + window <= chars.len() {
-        let local_gc = chars[i..i + window].iter().filter(|&&c| c == 'G' || c == 'C').count() as f64 / window as f64;
+    while i + window <= bytes.len() {
+        let local_gc = bytes[i..i + window].iter()
+            .filter(|&&b| b == b'G' || b == b'C').count() as f64 / window as f64;
         gc_variance += (local_gc - 0.5).powi(2);
         n_windows += 1;
         i += window;
     }
     if n_windows > 0 {
         gc_variance /= n_windows as f64;
-        score -= gc_variance * 2.0; // Penalize non-uniform GC
+        score -= gc_variance * 2.0;
     }
 
     // 4. Self-complementarity check (simplified)
@@ -388,15 +405,16 @@ fn compute_oligo_quality(seq: &str) -> f64 {
     score.max(0.0).min(1.0)
 }
 
+/// PERF: Byte-level homopolymer run detection.
 fn max_homopolymer_run(seq: &str) -> usize {
-    if seq.is_empty() { return 0; }
-    let mut max_run = 1; // FIX: minimum run is 1 for non-empty sequences
-    let mut run = 1;
-    let chars: Vec<char> = seq.chars().collect();
-    for i in 1..chars.len() {
-        if chars[i] == chars[i - 1] {
+    let bytes = seq.as_bytes();
+    if bytes.is_empty() { return 0; }
+    let mut max_run = 1usize;
+    let mut run = 1usize;
+    for i in 1..bytes.len() {
+        if bytes[i] == bytes[i - 1] {
             run += 1;
-            max_run = max_run.max(run);
+            if run > max_run { max_run = run; }
         } else {
             run = 1;
         }
@@ -404,21 +422,33 @@ fn max_homopolymer_run(seq: &str) -> usize {
     max_run
 }
 
-/// Simple check for strong secondary structure (hairpins)
+/// PERF: Byte-level palindromic structure detection.
 fn has_strong_secondary_structure(seq: &str) -> bool {
-    let chars: Vec<char> = seq.chars().collect();
-    let len = chars.len();
+    let bytes = seq.as_bytes();
+    let len = bytes.len();
     if len < 20 { return false; }
 
-    // Check for palindromic stretches >= 8bp
+    // Complement table for ASCII DNA bytes
+    #[inline]
+    fn complement(b: u8) -> u8 {
+        match b {
+            b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G',
+            b'a' => b't', b't' => b'a', b'g' => b'c', b'c' => b'g',
+            other => other,
+        }
+    }
+
     for i in 0..len.saturating_sub(20) {
-        for window in [8, 10, 12] {
+        for window in [8usize, 10, 12] {
             if i + window * 2 > len { continue; }
-            let fwd: String = chars[i..i + window].iter().collect();
-            let rev: String = chars[i + window..i + window * 2].iter().rev().map(|&c| match c {
-                'A' => 'T', 'T' => 'A', 'G' => 'C', 'C' => 'G', _ => c
-            }).collect();
-            if fwd == rev {
+            let mut is_palindrome = true;
+            for j in 0..window {
+                if bytes[i + j] != complement(bytes[i + window * 2 - 1 - j]) {
+                    is_palindrome = false;
+                    break;
+                }
+            }
+            if is_palindrome {
                 return true;
             }
         }

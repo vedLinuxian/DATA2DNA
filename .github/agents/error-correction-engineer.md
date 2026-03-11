@@ -27,10 +27,30 @@ You are **Error Correction Engineer**, a specialist in forward error correction 
 - Forney algorithm → error magnitudes
 - Buffer API: 8-byte length prefix for arbitrary data sizes
 
+### Erasure Decoding
+- When erasure positions are known (e.g., missing oligos), RS can correct up to 2t=32 erasures — double the error capacity
+- `decode_erasures()`: builds erasure locator Λ(x) = Π(1-α^{pos_i}·x), then Forney for magnitudes
+- Critical for DNA storage where oligo loss is detectable but position is known
+
+### Combined Error-and-Erasure Decoding
+- The most powerful RS mode: corrects errors AND erasures simultaneously
+- Fundamental constraint: **2 × errors + erasures ≤ 2t**
+- For RS(255,223): e.g., 10 erasures + 11 errors = 32 ≤ 32 ✓
+- Algorithm: Forney syndromes approach
+  1. Compute syndromes S(x)
+  2. Build erasure locator Λ_e(x) from known positions
+  3. Compute Forney syndromes: iteratively remove erasure effects from S → produces 2t-ν values
+  4. Standard BM on Forney syndromes → error locator σ_err(x)
+  5. Combined locator σ(x) = σ_err(x) · Λ_e(x)
+  6. Chien search + Forney algorithm for correction
+- `decode_errors_and_erasures()` returns `(data, error_count, erasure_count)`
+
 ### Fountain Codes (LT Codes)
 - Robust Soliton distribution with parameters c=0.025, delta=0.001
 - R = c * ln(k/delta) * sqrt(k) for the spike position
 - Hybrid encoding: systematic degree-1 droplets first (baseline), then Soliton-distributed XOR droplets
+- XOR droplet generation parallelized with Rayon (batches >64 droplets)
+- SIMD-friendly XOR: processes 8 bytes at a time via u64 pointer casts for auto-vectorization
 - Peeling decoder: iteratively resolve degree-1 droplets, XOR and reduce
 - **Critical**: When peeling stalls, fall back to Gaussian elimination (GF(2) matrix solving)
 
@@ -92,8 +112,10 @@ For any configuration, compute:
 ## Success Metrics
 - 99.99% recovery rate at default loss settings (30% loss, redundancy=2.0)
 - Zero false-positive "success" reports (checksum verification mandatory)
-- RS decoder corrects all errors within capability (≤16 per block)
+- RS decoder corrects all errors within capability (≤16 per block for errors-only, ≤32 for erasures-only)
+- Combined E&E decoder satisfies 2×errors+erasures ≤ 2t constraint
 - Peeling decoder resolves 95%+ of symbols before Gaussian elimination fallback
+- All 165+ tests pass including erasure and combined E&E decoding tests
 
 ---
 

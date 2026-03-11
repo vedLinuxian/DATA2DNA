@@ -33,7 +33,7 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; th
 fi
 
 echo "============================================================"
-echo "  Project Helix-Core v5.0 — DNA Data Storage OS"
+echo "  DATA2DNA v5.0 — Encode Digital Data Into Synthetic DNA"
 echo "  Pipeline: Compress → RS(255,223) → Fountain → Transcode"
 echo "           → OligoBuilder → Constraints → FASTA → Cost"
 echo "============================================================"

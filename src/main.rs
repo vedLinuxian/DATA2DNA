@@ -194,7 +194,7 @@ fn get_or_create_session(state: &AppState, key: &str) -> SessionState {
 }
 
 fn new_task(state: &AppState, owner: &str) -> String {
-    // BUG-07 FIX: Use 16 chars (64 bits entropy) to avoid birthday collisions
+    // 16 hex chars (64 bits entropy) avoids birthday collisions up to ~2^32 concurrent tasks
     let id = uuid::Uuid::new_v4().to_string().replace('-', "")[..16].to_string();
     let mut tasks = state.tasks.write().expect("tasks RwLock poisoned");
 
@@ -1490,6 +1490,329 @@ async fn api_error_profiles() -> HttpResponse {
     }))
 }
 
+// ========== Route: Custom Benchmark ==========
+
+#[derive(Deserialize)]
+struct CustomBenchmarkInput {
+    text: Option<String>,
+    redundancy: Option<Vec<f64>>,
+    block_sizes: Option<Vec<usize>>,
+    chaos_profiles: Option<Vec<String>>,
+    iterations: Option<usize>,
+}
+
+async fn api_benchmark_custom(
+    req: HttpRequest,
+    payload: web::Payload,
+    state: web::Data<AppState>,
+) -> HttpResponse {
+    let sid = client_key(&req);
+    info!("api_benchmark_custom started for session {sid}");
+
+    let ct = req
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let (data, params) = if ct.contains("multipart") {
+        match parse_multipart(Multipart::new(req.headers(), payload)).await {
+            Ok((file_data, _filename, _redundancy)) => {
+                // For multipart, use defaults for benchmark params
+                (file_data, CustomBenchmarkInput {
+                    text: None,
+                    redundancy: None,
+                    block_sizes: None,
+                    chaos_profiles: None,
+                    iterations: None,
+                })
+            }
+            Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({"error": e})),
+        }
+    } else {
+        let mut body = Vec::<u8>::new();
+        let mut stream = payload;
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(c) => {
+                    if body.len() + c.len() > MAX_UPLOAD_BYTES {
+                        return HttpResponse::PayloadTooLarge()
+                            .json(serde_json::json!({"error": "Payload too large"}));
+                    }
+                    body.extend_from_slice(&c);
+                }
+                Err(e) => {
+                    return HttpResponse::BadRequest()
+                        .json(serde_json::json!({"error": e.to_string()}))
+                }
+            }
+        }
+        let input: CustomBenchmarkInput = match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(e) => {
+                return HttpResponse::BadRequest()
+                    .json(serde_json::json!({"error": e.to_string()}))
+            }
+        };
+        let text_data = input.text.clone().unwrap_or_default().into_bytes();
+        if text_data.is_empty() {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "No data provided. Supply 'text' field or use multipart file upload."}));
+        }
+        (text_data, input)
+    };
+
+    if data.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Empty data!"}));
+    }
+
+    let redundancies = params.redundancy.unwrap_or_else(|| vec![1.5, 2.0, 2.5, 3.0]);
+    let block_sizes = params.block_sizes.unwrap_or_else(|| vec![32, 64, 128]);
+    let chaos_profile_names = params.chaos_profiles.unwrap_or_else(|| {
+        vec!["illumina".into(), "nanopore".into(), "pacbio_hifi".into(), "aging_1000yr".into()]
+    });
+    let iterations = params.iterations.unwrap_or(1).min(10).max(1);
+
+    // Validate parameters
+    for &r in &redundancies {
+        if !r.is_finite() || r <= 0.0 || r > 20.0 {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": format!("Invalid redundancy value: {}", r)}));
+        }
+    }
+    for &bs in &block_sizes {
+        if bs == 0 || bs > 1024 {
+            return HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": format!("Invalid block size: {}", bs)}));
+        }
+    }
+
+    // Build chaos profiles lookup
+    let chaos_profiles: Vec<(String, f64, Option<f64>, Option<f64>, Option<f64>)> = chaos_profile_names.iter().map(|name| {
+        match name.as_str() {
+            "illumina" => (name.clone(), 0.05, Some(0.001), Some(0.005), Some(0.001)),
+            "nanopore" => (name.clone(), 0.10, Some(0.04), Some(0.05), Some(0.03)),
+            "pacbio_hifi" => (name.clone(), 0.08, Some(0.002), Some(0.003), Some(0.001)),
+            "aging_1000yr" => (name.clone(), 0.30, Some(0.10), Some(0.15), Some(0.05)),
+            "catastrophic" => (name.clone(), 0.60, Some(0.20), Some(0.25), Some(0.10)),
+            "none" => (name.clone(), 0.0, Some(0.0), Some(0.0), Some(0.0)),
+            _ => (name.clone(), 0.10, Some(0.01), Some(0.01), Some(0.01)),
+        }
+    }).collect();
+
+    let total_combos = redundancies.len() * block_sizes.len() * chaos_profiles.len() * iterations;
+    if total_combos > 500 {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": format!("Too many combinations ({}). Max 500.", total_combos)}));
+    }
+
+    let task_id = new_task(state.get_ref(), &sid);
+    let state_clone = state.into_inner().clone();
+    let tid = task_id.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let cb_state = state_clone.clone();
+        let cb_tid = tid.clone();
+
+        let mut results = Vec::new();
+        let mut combo_idx = 0usize;
+
+        for &redundancy in &redundancies {
+            for &block_size in &block_sizes {
+                for (profile_name, loss, del, sub, ins) in &chaos_profiles {
+                    let mut iter_results = Vec::new();
+
+                    for iter_i in 0..iterations {
+                        combo_idx += 1;
+                        let pct = ((combo_idx as f64 / total_combos as f64) * 90.0) as u32 + 5;
+                        let phase_msg = format!(
+                            "[{}/{}] R={:.1}x BS={} {} iter {}/{}",
+                            combo_idx, total_combos, redundancy, block_size, profile_name, iter_i + 1, iterations
+                        );
+                        update_task(&cb_state, &cb_tid, |t| {
+                            t.phase = phase_msg;
+                            t.percent = pct;
+                        });
+
+                        let mut config = helix_core::pipeline::PipelineConfig::default();
+                        config.redundancy = redundancy;
+                        config.block_size = block_size;
+                        let mut pipeline = helix_core::pipeline::HelixPipeline::new(config);
+
+                        // Encode
+                        let encode_start = std::time::Instant::now();
+                        let _enc = pipeline.encode(&data, "benchmark_input.dat", None);
+                        let encode_time = encode_start.elapsed().as_secs_f64();
+
+                        // Apply chaos
+                        let chaos_start = std::time::Instant::now();
+                        let chaos_result = pipeline.apply_chaos(*loss, *del, *sub, *ins, None);
+                        let chaos_time = chaos_start.elapsed().as_secs_f64();
+
+                        // Decode
+                        let decode_start = std::time::Instant::now();
+                        let dec = pipeline.decode(None);
+                        let decode_time = decode_start.elapsed().as_secs_f64();
+
+                        let (decode_ok, data_match) = match &dec {
+                            Ok(d) => (true, d.data_match),
+                            Err(_) => (false, false),
+                        };
+
+                        let survival_rate = chaos_result.as_ref().ok()
+                            .map(|c| c.droplet_survival_rate).unwrap_or(1.0);
+
+                        iter_results.push(serde_json::json!({
+                            "iteration": iter_i + 1,
+                            "encode_time_ms": (encode_time * 1000.0 * 100.0).round() / 100.0,
+                            "chaos_time_ms": (chaos_time * 1000.0 * 100.0).round() / 100.0,
+                            "decode_time_ms": (decode_time * 1000.0 * 100.0).round() / 100.0,
+                            "decode_ok": decode_ok,
+                            "data_match": data_match,
+                            "survival_rate": survival_rate,
+                        }));
+                    }
+
+                    // Compute averages across iterations
+                    let avg_encode = iter_results.iter()
+                        .filter_map(|r| r["encode_time_ms"].as_f64())
+                        .sum::<f64>() / iterations as f64;
+                    let avg_chaos = iter_results.iter()
+                        .filter_map(|r| r["chaos_time_ms"].as_f64())
+                        .sum::<f64>() / iterations as f64;
+                    let avg_decode = iter_results.iter()
+                        .filter_map(|r| r["decode_time_ms"].as_f64())
+                        .sum::<f64>() / iterations as f64;
+                    let all_match = iter_results.iter()
+                        .all(|r| r["data_match"].as_bool().unwrap_or(false));
+                    let recovery_rate = iter_results.iter()
+                        .filter(|r| r["data_match"].as_bool().unwrap_or(false))
+                        .count() as f64 / iterations as f64;
+
+                    // Run one more encode with no chaos for metrics
+                    let mut config = helix_core::pipeline::PipelineConfig::default();
+                    config.redundancy = redundancy;
+                    config.block_size = block_size;
+                    let mut pipeline = helix_core::pipeline::HelixPipeline::new(config);
+                    let enc = pipeline.encode(&data, "benchmark_input.dat", None);
+
+                    let throughput_encode = if avg_encode > 0.0 {
+                        data.len() as f64 / (1024.0 * 1024.0) / (avg_encode / 1000.0)
+                    } else { 0.0 };
+                    let throughput_decode = if avg_decode > 0.0 {
+                        data.len() as f64 / (1024.0 * 1024.0) / (avg_decode / 1000.0)
+                    } else { 0.0 };
+
+                    results.push(serde_json::json!({
+                        "redundancy": redundancy,
+                        "block_size": block_size,
+                        "chaos_profile": profile_name,
+                        "iterations": iterations,
+                        "input_size": data.len(),
+                        "compressed_size": enc.post_compress_size,
+                        "compression_ratio": enc.compression_stats.as_ref().map(|s| s.compression_ratio).unwrap_or(1.0),
+                        "space_saving_pct": enc.compression_stats.as_ref().map(|s| s.space_saving_percent).unwrap_or(0.0),
+                        "dna_bases": enc.transcode.sequence_length,
+                        "num_oligos": enc.num_oligos,
+                        "gc_content": enc.transcode.gc_content,
+                        "homopolymer_safe": enc.transcode.homopolymer_safe,
+                        "synthesis_readiness": enc.constraint_report.as_ref().map(|r| r.synthesis_readiness_score).unwrap_or(0.0),
+                        "cost_per_mb": enc.cost_estimate.as_ref().map(|c| c.cost_per_mb_stored).unwrap_or(0.0),
+                        "total_cost_usd": enc.cost_estimate.as_ref().map(|c| c.total_cost_usd).unwrap_or(0.0),
+                        "avg_encode_time_ms": (avg_encode * 100.0).round() / 100.0,
+                        "avg_chaos_time_ms": (avg_chaos * 100.0).round() / 100.0,
+                        "avg_decode_time_ms": (avg_decode * 100.0).round() / 100.0,
+                        "total_time_ms": ((avg_encode + avg_chaos + avg_decode) * 100.0).round() / 100.0,
+                        "throughput_encode_mbps": (throughput_encode * 100.0).round() / 100.0,
+                        "throughput_decode_mbps": (throughput_decode * 100.0).round() / 100.0,
+                        "all_iterations_match": all_match,
+                        "recovery_rate": recovery_rate,
+                        "per_iteration": iter_results,
+                    }));
+                }
+            }
+        }
+
+        // Compute summary statistics
+        let all_pass = results.iter().all(|r| r["all_iterations_match"].as_bool().unwrap_or(false));
+        let best_idx = results.iter().enumerate()
+            .filter(|(_, r)| r["all_iterations_match"].as_bool().unwrap_or(false))
+            .min_by(|(_, a), (_, b)| {
+                let cost_a = a["total_time_ms"].as_f64().unwrap_or(f64::MAX);
+                let cost_b = b["total_time_ms"].as_f64().unwrap_or(f64::MAX);
+                cost_a.partial_cmp(&cost_b).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i);
+        let worst_idx = results.iter().enumerate()
+            .max_by(|(_, a), (_, b)| {
+                let cost_a = a["total_time_ms"].as_f64().unwrap_or(0.0);
+                let cost_b = b["total_time_ms"].as_f64().unwrap_or(0.0);
+                cost_a.partial_cmp(&cost_b).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i);
+
+        let avg_recovery: f64 = if results.is_empty() { 0.0 } else {
+            results.iter().filter_map(|r| r["recovery_rate"].as_f64()).sum::<f64>() / results.len() as f64
+        };
+        let avg_encode_time: f64 = if results.is_empty() { 0.0 } else {
+            results.iter().filter_map(|r| r["avg_encode_time_ms"].as_f64()).sum::<f64>() / results.len() as f64
+        };
+        let avg_decode_time: f64 = if results.is_empty() { 0.0 } else {
+            results.iter().filter_map(|r| r["avg_decode_time_ms"].as_f64()).sum::<f64>() / results.len() as f64
+        };
+
+        update_task(&cb_state, &cb_tid, |t| {
+            t.phase = "Benchmark complete".to_string();
+            t.percent = 100;
+        });
+
+        let response = serde_json::json!({
+            "success": true,
+            "all_pass": all_pass,
+            "num_configurations": results.len(),
+            "input_size": data.len(),
+            "parameters": {
+                "redundancies": redundancies,
+                "block_sizes": block_sizes,
+                "chaos_profiles": chaos_profile_names,
+                "iterations": iterations,
+            },
+            "summary": {
+                "best_config_index": best_idx,
+                "worst_config_index": worst_idx,
+                "avg_recovery_rate": (avg_recovery * 10000.0).round() / 10000.0,
+                "avg_encode_time_ms": (avg_encode_time * 100.0).round() / 100.0,
+                "avg_decode_time_ms": (avg_decode_time * 100.0).round() / 100.0,
+            },
+            "results": results,
+        });
+
+        update_task(&state_clone, &tid, |t| {
+            t.status = "done".to_string();
+            t.percent = 100;
+            t.phase = "Complete".to_string();
+            t.result = Some(response);
+        });
+    });
+
+    HttpResponse::Ok().json(serde_json::json!({"task_id": task_id}))
+}
+
+// ========== Serve benchmark.html ==========
+
+async fn serve_benchmark() -> HttpResponse {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("static")
+        .join("benchmark.html");
+    match tokio::fs::read_to_string(&path).await {
+        Ok(content) => HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .body(content),
+        Err(_) => HttpResponse::NotFound().body("Benchmark page not found"),
+    }
+}
+
 // ========== Serve index.html ==========
 
 async fn serve_index() -> HttpResponse {
@@ -1560,6 +1883,8 @@ async fn main() -> std::io::Result<()> {
             .route("/api/decode", web::post().to(api_decode))
             .route("/api/decode_fasta", web::post().to(api_decode_fasta))
             .route("/api/benchmark", web::post().to(api_benchmark))
+            .route("/api/benchmark_custom", web::post().to(api_benchmark_custom))
+            .route("/benchmark", web::get().to(serve_benchmark))
             .route("/api/error_profiles", web::get().to(api_error_profiles))
             .route(
                 "/api/download_recovered",

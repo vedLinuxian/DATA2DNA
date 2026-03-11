@@ -386,7 +386,7 @@ fn dedup_compress(data: &[u8], block_size: usize, zstd_level: i32) -> anyhow::Re
 
     // Serialize: num_unique(4) | num_indices(4) | block_size(4) |
     //            for each unique: len(4) data | indices(4 each)
-    // BUG-09 FIX: Use u32 for block lengths to avoid overflow at >65KB blocks
+    // u32 block lengths support blocks up to 4 GiB (u16 would overflow at >65 KB)
     let mut packed = Vec::new();
     packed.extend_from_slice(&(unique_data.len() as u32).to_le_bytes());
     packed.extend_from_slice(&(indices.len() as u32).to_le_bytes());
@@ -423,7 +423,7 @@ fn dedup_decompress(data: &[u8]) -> anyhow::Result<Vec<u8>> {
 
     let mut unique_blocks: Vec<Vec<u8>> = Vec::with_capacity(num_unique);
     for _ in 0..num_unique {
-        // BUG-09 FIX: Read u32 instead of u16 for block lengths
+        // Block lengths stored as u32 to support large blocks without overflow
         let len = read_u32(&packed, &mut pos)? as usize;
         if pos + len > packed.len() {
             anyhow::bail!("Malformed dedup payload: unique block exceeds payload length");

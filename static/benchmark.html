@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Helix-Core DNA Benchmark Lab</title>
+<style>
+/* ========== Reset & Base ========== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0f1a;
+  --bg2: #0f1628;
+  --bg3: #141d33;
+  --bg4: #1a2540;
+  --accent: #00ff88;
+  --cyan: #00d4ff;
+  --magenta: #ff00aa;
+  --warn: #ffaa00;
+  --err: #ff4466;
+  --text: #e0e8f0;
+  --text2: #8899aa;
+  --border: #1e2d4a;
+  --radius: 10px;
+  --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+}
+html { font-size: 15px; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ========== Header ========== */
+.header {
+  position: relative;
+  text-align: center;
+  padding: 2.5rem 1rem 2rem;
+  background: linear-gradient(180deg, #0d1325 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  position: relative;
+  z-index: 1;
+}
+.header .subtitle {
+  color: var(--text2);
+  font-size: 0.9rem;
+  margin-top: 0.4rem;
+  position: relative;
+  z-index: 1;
+}
+.helix-bg {
+  position: absolute;
+  inset: 0;
+  opacity: 0.08;
+  pointer-events: none;
+}
+.helix-bg svg { width: 100%; height: 100%; }
+.nav-back {
+  position: absolute;
+  left: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text2);
+  font-size: 0.85rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.nav-back:hover { color: var(--accent); text-decoration: none; }
+
+/* ========== DNA Helix Animation ========== */
+.dna-helix {
+  position: absolute;
+  right: 3%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 60px;
+  height: 80px;
+  z-index: 1;
+}
+@keyframes helixRotate {
+  0% { transform: translateY(-50%) rotateY(0deg); }
+  100% { transform: translateY(-50%) rotateY(360deg); }
+}
+.dna-helix { animation: helixRotate 8s linear infinite; }
+.dna-strand {
+  position: absolute;
+  width: 4px;
+  height: 100%;
+  left: 50%;
+}
+.dna-strand:nth-child(1) { animation: strand1 4s ease-in-out infinite; }
+.dna-strand:nth-child(2) { animation: strand2 4s ease-in-out infinite; }
+@keyframes strand1 {
+  0%, 100% { transform: translateX(-15px) scaleX(1); }
+  50% { transform: translateX(15px) scaleX(1); }
+}
+@keyframes strand2 {
+  0%, 100% { transform: translateX(15px) scaleX(1); }
+  50% { transform: translateX(-15px) scaleX(1); }
+}
+.dna-rung {
+  position: absolute;
+  height: 3px;
+  width: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 2px;
+}
+.dna-rung:nth-child(odd) { background: var(--accent); opacity: 0.6; }
+.dna-rung:nth-child(even) { background: var(--cyan); opacity: 0.6; }
+
+/* ========== Layout ========== */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: grid;
+  gap: 1.5rem;
+}
+.section {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.section-title .icon { font-size: 1.2rem; }
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+/* ========== Inputs ========== */
+textarea {
+  width: 100%;
+  min-height: 120px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+textarea:focus { outline: none; border-color: var(--cyan); }
+textarea::placeholder { color: var(--text2); }
+
+/* ========== File Upload ========== */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: var(--bg3);
+  margin-top: 0.8rem;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--cyan);
+  background: rgba(0, 212, 255, 0.05);
+}
+.drop-zone .drop-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+.drop-zone .drop-text { color: var(--text2); font-size: 0.85rem; }
+.drop-zone .drop-text span { color: var(--cyan); }
+.file-info {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.8rem;
+  background: var(--bg4);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--accent);
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+.file-info.visible { display: flex; }
+.file-info .remove {
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--err);
+  font-weight: bold;
+}
+
+/* ========== Sample Buttons ========== */
+.sample-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+.sample-btn {
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sample-btn:hover {
+  border-color: var(--cyan);
+  color: var(--text);
+  background: var(--bg4);
+}
+
+/* ========== Config Controls ========== */
+.ctrl-group { margin-bottom: 1rem; }
+.ctrl-label {
+  font-size: 0.82rem;
+  color: var(--text2);
+  margin-bottom: 0.4rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ctrl-label .val { color: var(--cyan); font-family: var(--mono); font-size: 0.8rem; }
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  background: var(--bg4);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--cyan);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--cyan);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.chip {
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0, 255, 136, 0.08);
+}
+.chip:hover { border-color: var(--cyan); }
+
+/* ========== Chaos Profiles ========== */
+.profile-grid { display: grid; gap: 0.5rem; }
+.profile-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: var(--bg3);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.profile-item:hover { border-color: var(--border); }
+.profile-item.active { border-color: var(--accent); background: rgba(0, 255, 136, 0.04); }
+.profile-item input[type="checkbox"] { display: none; }
+.profile-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  font-size: 0.7rem;
+}
+.profile-item.active .profile-check {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+.profile-name { font-size: 0.85rem; font-weight: 500; }
+.profile-desc { font-size: 0.72rem; color: var(--text2); margin-top: 0.15rem; }
+
+/* ========== Number Input ========== */
+.num-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.num-input input {
+  width: 60px;
+  text-align: center;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: var(--mono);
+}
+.num-input input:focus { outline: none; border-color: var(--cyan); }
+.num-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.num-btn:hover { border-color: var(--cyan); color: var(--text); }
+
+/* ========== Run Button ========== */
+.run-section { text-align: center; }
+.run-btn {
+  padding: 0.9rem 3rem;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, var(--accent), #00cc6a);
+  color: var(--bg);
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s;
+  letter-spacing: 0.5px;
+  position: relative;
+  overflow: hidden;
+}
+.run-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(0, 255, 136, 0.3);
+}
+.run-btn:active { transform: translateY(0); }
+.run-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.run-btn .spinner {
+  display: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid transparent;
+  border-top-color: var(--bg);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+}
+.run-btn.loading .spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ========== Progress ========== */
+.progress-container {
+  margin-top: 1rem;
+  display: none;
+}
+.progress-container.visible { display: block; }
+.progress-bar-wrap {
+  height: 8px;
+  background: var(--bg4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--cyan));
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.progress-text {
+  font-size: 0.78rem;
+  color: var(--text2);
+  margin-top: 0.4rem;
+  font-family: var(--mono);
+  text-align: center;
+}
+
+/* ========== Results ========== */
+#results-section { display: none; }
+#results-section.visible { display: block; }
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.summary-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.2rem;
+  text-align: center;
+}
+.summary-card .card-label {
+  font-size: 0.72rem;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 0.5rem;
+}
+.summary-card .card-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.summary-card .card-detail {
+  font-size: 0.72rem;
+  color: var(--text2);
+  margin-top: 0.3rem;
+}
+.card-value.green { color: var(--accent); }
+.card-value.cyan { color: var(--cyan); }
+.card-value.warn { color: var(--warn); }
+.card-value.err { color: var(--err); }
+
+/* ========== Results Table ========== */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+th {
+  background: var(--bg4);
+  padding: 0.7rem 0.6rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text2);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+}
+th:hover { color: var(--cyan); }
+th .sort-arrow { font-size: 0.6rem; margin-left: 0.3rem; }
+td {
+  padding: 0.6rem;
+  border-bottom: 1px solid rgba(30, 45, 74, 0.4);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+tr:hover td { background: rgba(0, 212, 255, 0.03); }
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.badge.pass { background: rgba(0, 255, 136, 0.15); color: var(--accent); }
+.badge.fail { background: rgba(255, 68, 102, 0.15); color: var(--err); }
+.best-row td { border-left: 3px solid var(--accent); }
+
+/* ========== Charts ========== */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+.chart-box {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.2rem;
+}
+.chart-box h3 {
+  font-size: 0.9rem;
+  color: var(--text2);
+  margin-bottom: 1rem;
+}
+canvas {
+  width: 100% !important;
+  height: 250px !important;
+}
+
+/* ========== Export Buttons ========== */
+.export-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1.2rem;
+}
+.export-btn {
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.export-btn:hover {
+  border-color: var(--cyan);
+  color: var(--text);
+}
+
+/* ========== Toast ========== */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  padding: 0.8rem 1.2rem;
+  border-radius: 8px;
+  color: var(--bg);
+  font-size: 0.85rem;
+  font-weight: 500;
+  z-index: 9999;
+  transform: translateY(100px);
+  opacity: 0;
+  transition: all 0.3s ease;
+  pointer-events: none;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { background: var(--accent); }
+.toast.error { background: var(--err); }
+
+/* ========== Responsive ========== */
+@media (max-width: 768px) {
+  .header h1 { font-size: 1.4rem; }
+  .dna-helix { display: none; }
+  .nav-back { position: static; transform: none; margin-bottom: 0.5rem; }
+  .config-grid { grid-template-columns: 1fr; }
+  .charts-grid { grid-template-columns: 1fr; }
+  .container { padding: 1rem; }
+  canvas { height: 200px !important; }
+}
+
+/* ========== Scrollbar ========== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+/* ========== Redundancy multi-select ========== */
+.redundancy-chips { margin-top: 0.4rem; }
+</style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+  <a href="/" class="nav-back">&#8592; Back to Helix-Core</a>
+  <div class="helix-bg">
+    <svg viewBox="0 0 1200 120" preserveAspectRatio="none">
+      <path d="M0,60 Q150,0 300,60 T600,60 T900,60 T1200,60" fill="none" stroke="#00ff88" stroke-width="1" opacity="0.3"/>
+      <path d="M0,60 Q150,120 300,60 T600,60 T900,60 T1200,60" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.3"/>
+    </svg>
+  </div>
+  <h1>&#x1F9EC; Helix-Core DNA Benchmark Lab</h1>
+  <div class="subtitle">Comprehensive DNA storage pipeline benchmarking &amp; comparison</div>
+  <div class="dna-helix">
+    <div class="dna-rung" style="top:5%"></div>
+    <div class="dna-rung" style="top:18%"></div>
+    <div class="dna-rung" style="top:31%"></div>
+    <div class="dna-rung" style="top:44%"></div>
+    <div class="dna-rung" style="top:57%"></div>
+    <div class="dna-rung" style="top:70%"></div>
+    <div class="dna-rung" style="top:83%"></div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ===== DATA INPUT ===== -->
+  <div class="section">
+    <div class="section-title"><span class="icon">&#x1F4E5;</span> Data Input</div>
+    <textarea id="dataInput" placeholder="Paste your data here (CSV, JSON, SQL, code, text...)"></textarea>
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-icon">&#x1F4C1;</div>
+      <div class="drop-text">Drag &amp; drop a file here or <span>click to browse</span></div>
+      <input type="file" id="fileInput" style="display:none">
+    </div>
+    <div class="file-info" id="fileInfo">
+      <span id="fileName"></span>
+      <span id="fileSize"></span>
+      <span class="remove" id="fileRemove">&times;</span>
+    </div>
+    <div class="sample-row">
+      <button class="sample-btn" data-sample="csv">CSV Data</button>
+      <button class="sample-btn" data-sample="json">JSON Data</button>
+      <button class="sample-btn" data-sample="sql">SQL Dump</button>
+      <button class="sample-btn" data-sample="code">Source Code</button>
+      <button class="sample-btn" data-sample="fasta">FASTA Genomic</button>
+    </div>
+  </div>
+
+  <!-- ===== CONFIGURATION ===== -->
+  <div class="section">
+    <div class="section-title"><span class="icon">&#x2699;</span> Configuration</div>
+    <div class="config-grid">
+
+      <!-- Redundancy -->
+      <div>
+        <div class="ctrl-group">
+          <div class="ctrl-label">
+            Redundancy Levels
+            <span class="val" id="redundancyCount">4 selected</span>
+          </div>
+          <div class="chip-group redundancy-chips" id="redundancyChips">
+            <div class="chip" data-val="1.5">1.5x</div>
+            <div class="chip active" data-val="2.0">2.0x</div>
+            <div class="chip active" data-val="2.5">2.5x</div>
+            <div class="chip active" data-val="3.0">3.0x</div>
+            <div class="chip" data-val="3.5">3.5x</div>
+            <div class="chip" data-val="4.0">4.0x</div>
+            <div class="chip" data-val="5.0">5.0x</div>
+          </div>
+        </div>
+
+        <!-- Block Size -->
+        <div class="ctrl-group">
+          <div class="ctrl-label">Block Size</div>
+          <div class="chip-group" id="blockChips">
+            <div class="chip" data-val="32">32 B</div>
+            <div class="chip active" data-val="64">64 B</div>
+            <div class="chip active" data-val="128">128 B</div>
+            <div class="chip" data-val="256">256 B</div>
+          </div>
+        </div>
+
+        <!-- Iterations -->
+        <div class="ctrl-group">
+          <div class="ctrl-label">Iterations per Configuration</div>
+          <div class="num-input">
+            <button class="num-btn" id="iterDec">-</button>
+            <input type="number" id="iterInput" value="1" min="1" max="10">
+            <button class="num-btn" id="iterInc">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chaos Profiles -->
+      <div>
+        <div class="ctrl-group">
+          <div class="ctrl-label">Chaos / Error Profiles</div>
+          <div class="profile-grid" id="profileGrid">
+            <div class="profile-item active" data-profile="none">
+              <div class="profile-check">&#x2713;</div>
+              <div>
+                <div class="profile-name">No Chaos (Baseline)</div>
+                <div class="profile-desc">Clean encode/decode, no degradation</div>
+              </div>
+            </div>
+            <div class="profile-item active" data-profile="illumina">
+              <div class="profile-check">&#x2713;</div>
+              <div>
+                <div class="profile-name">Illumina NGS</div>
+                <div class="profile-desc">5% loss, 0.5% substitution — high accuracy short reads</div>
+              </div>
+            </div>
+            <div class="profile-item" data-profile="nanopore">
+              <div class="profile-check">&#x2713;</div>
+              <div>
+                <div class="profile-name">Oxford Nanopore</div>
+                <div class="profile-desc">10% loss, 5% sub, 3% ins — long reads, noisy</div>
+              </div>
+            </div>
+            <div class="profile-item" data-profile="pacbio_hifi">
+              <div class="profile-check">&#x2713;</div>
+              <div>
+                <div class="profile-name">PacBio HiFi</div>
+                <div class="profile-desc">8% loss, 0.3% sub — long reads, high accuracy</div>
+              </div>
+            </div>
+            <div class="profile-item" data-profile="aging_1000yr">
+              <div class="profile-check">&#x2713;</div>
+              <div>
+                <div class="profile-name">1000-Year Aging</div>
+                <div class="profile-desc">30% loss, 15% sub, 10% del — extreme degradation</div>
+              </div>
+            </div>
+            <div class="profile-item" data-profile="catastrophic">
+              <div class="profile-check">&#x2713;</div>
+              <div>
+                <div class="profile-name">Catastrophic Failure</div>
+                <div class="profile-desc">60% loss, 25% sub, 20% del — stress test</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RUN ===== -->
+  <div class="section run-section">
+    <button class="run-btn" id="runBtn">
+      <span class="spinner"></span>
+      <span class="btn-text">&#x1F680; Run Benchmark</span>
+    </button>
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="progress-text" id="progressText">Initializing...</div>
+    </div>
+  </div>
+
+  <!-- ===== RESULTS ===== -->
+  <div id="results-section">
+    <!-- Summary Cards -->
+    <div class="section">
+      <div class="section-title"><span class="icon">&#x1F4CA;</span> Results Summary</div>
+      <div class="summary-cards" id="summaryCards"></div>
+    </div>
+
+    <!-- Comparison Table -->
+    <div class="section">
+      <div class="section-title"><span class="icon">&#x1F4CB;</span> Configuration Comparison</div>
+      <div class="table-wrap">
+        <table id="resultsTable">
+          <thead><tr id="tableHead"></tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="section">
+      <div class="section-title"><span class="icon">&#x1F4C8;</span> Visual Analysis</div>
+      <div class="charts-grid">
+        <div class="chart-box">
+          <h3>Encode Time (ms)</h3>
+          <canvas id="chartEncode"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Decode Time (ms)</h3>
+          <canvas id="chartDecode"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>DNA Bases Generated</h3>
+          <canvas id="chartBases"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Cost per MB (USD)</h3>
+          <canvas id="chartCost"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>GC Content (%)</h3>
+          <canvas id="chartGC"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Recovery Rate (%)</h3>
+          <canvas id="chartRecovery"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div class="section">
+      <div class="section-title"><span class="icon">&#x1F4BE;</span> Export Results</div>
+      <div class="export-row">
+        <button class="export-btn" id="exportJSON">&#x1F4E6; Download JSON</button>
+        <button class="export-btn" id="exportCSV">&#x1F4C4; Download CSV</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ========== State ==========
+let uploadedFile = null;
+let benchmarkResults = null;
+
+// ========== Sample Data ==========
+const SAMPLES = {
+  csv: `id,name,email,department,salary,start_date
+1,Alice Johnson,alice@example.com,Engineering,95000,2021-03-15
+2,Bob Smith,bob@example.com,Marketing,72000,2020-07-22
+3,Carol Williams,carol@example.com,Engineering,105000,2019-01-10
+4,David Brown,david@example.com,Sales,68000,2022-11-01
+5,Eve Davis,eve@example.com,Engineering,98000,2021-06-30
+6,Frank Miller,frank@example.com,HR,65000,2020-02-14
+7,Grace Wilson,grace@example.com,Engineering,110000,2018-09-05
+8,Henry Taylor,henry@example.com,Marketing,75000,2021-12-20
+9,Ivy Anderson,ivy@example.com,Sales,71000,2022-04-18
+10,Jack Thomas,jack@example.com,Engineering,102000,2020-08-11
+`.repeat(10),
+  json: JSON.stringify({
+    "database": "helix_benchmark",
+    "collections": [
+      {"name": "users", "count": 1500, "indexes": ["email", "created_at"]},
+      {"name": "sequences", "count": 45000, "indexes": ["organism", "length"]},
+      {"name": "experiments", "count": 320, "indexes": ["date", "researcher"]}
+    ],
+    "settings": {
+      "replication_factor": 3,
+      "compression": "zstd",
+      "encryption": "AES-256-GCM",
+      "backup_schedule": "0 2 * * *"
+    },
+    "users": Array.from({length: 20}, (_, i) => ({
+      id: i + 1,
+      name: `User_${i + 1}`,
+      email: `user${i+1}@helix-core.bio`,
+      role: ["admin", "researcher", "viewer"][i % 3],
+      sequences_uploaded: Math.floor(Math.random() * 1000),
+      last_login: new Date(2024, Math.floor(Math.random()*12), Math.floor(Math.random()*28)+1).toISOString()
+    }))
+  }, null, 2),
+  sql: `-- Helix-Core Benchmark SQL Sample
+CREATE TABLE organisms (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    taxonomy VARCHAR(512),
+    genome_size BIGINT,
+    gc_content DECIMAL(5,4),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE sequences (
+    id SERIAL PRIMARY KEY,
+    organism_id INTEGER REFERENCES organisms(id),
+    sequence_type VARCHAR(50),
+    length INTEGER,
+    checksum VARCHAR(64),
+    data TEXT
+);
+
+INSERT INTO organisms (name, taxonomy, genome_size, gc_content) VALUES
+('Escherichia coli', 'Bacteria;Proteobacteria;Gammaproteobacteria', 4641652, 0.5079),
+('Saccharomyces cerevisiae', 'Eukaryota;Fungi;Ascomycota', 12157105, 0.3814),
+('Homo sapiens', 'Eukaryota;Animalia;Chordata', 3088286401, 0.4095),
+('Arabidopsis thaliana', 'Eukaryota;Plantae;Magnoliophyta', 135000000, 0.3600);
+
+SELECT o.name, COUNT(s.id) AS num_sequences, AVG(s.length) AS avg_length
+FROM organisms o
+LEFT JOIN sequences s ON o.id = s.organism_id
+GROUP BY o.name
+ORDER BY num_sequences DESC;
+`.repeat(5),
+  code: `// Helix-Core Benchmark: Sample Rust Source Code
+use std::collections::HashMap;
+use std::sync::Arc;
+
+#[derive(Debug, Clone)]
+pub struct DNAEncoder {
+    block_size: usize,
+    redundancy: f64,
+    codec: Arc<ReedSolomon>,
+}
+
+impl DNAEncoder {
+    pub fn new(block_size: usize, redundancy: f64) -> Self {
+        let codec = Arc::new(ReedSolomon::new(block_size));
+        Self { block_size, redundancy, codec }
+    }
+
+    pub fn encode(&self, data: &[u8]) -> Result<Vec<Oligo>, EncoderError> {
+        let compressed = self.compress(data)?;
+        let rs_encoded = self.codec.encode(&compressed)?;
+        let droplets = self.fountain_encode(&rs_encoded)?;
+        let oligos: Vec<Oligo> = droplets.iter()
+            .enumerate()
+            .map(|(i, d)| Oligo::build(i, d, self.block_size))
+            .collect();
+        self.screen_constraints(&oligos)?;
+        Ok(oligos)
+    }
+
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>, EncoderError> {
+        let bwt = burrows_wheeler_transform(data);
+        let mtf = move_to_front_encode(&bwt);
+        let zrle = zero_run_length_encode(&mtf);
+        zstd::encode_all(&zrle[..], 22)
+            .map_err(|e| EncoderError::Compression(e.to_string()))
+    }
+}
+
+fn main() {
+    let encoder = DNAEncoder::new(64, 2.0);
+    let data = b"Hello, DNA storage world!";
+    match encoder.encode(data) {
+        Ok(oligos) => println!("Encoded into {} oligos", oligos.len()),
+        Err(e) => eprintln!("Encoding failed: {:?}", e),
+    }
+}
+`.repeat(5),
+  fasta: `>seq_001 Synthetic_test_oligo length=300 gc=0.50
+ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG
+GCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAG
+ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG
+GCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAG
+ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG
+>seq_002 Synthetic_test_oligo length=300 gc=0.48
+AATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATT
+CCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGG
+AATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATT
+TTAACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTTAA
+CCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGG
+>seq_003 High_GC_content gc=0.65
+GCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCC
+CGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGGCGG
+GCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCC
+`.repeat(10)
+};
+
+// ========== DOM ==========
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+// ========== Toast ==========
+function toast(msg, type = 'success') {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.className = 'toast ' + type;
+  setTimeout(() => el.classList.add('show'), 10);
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ========== File Upload ==========
+const dropZone = $('#dropZone');
+const fileInput = $('#fileInput');
+const fileInfo = $('#fileInfo');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+function handleFile(file) {
+  if (file.size > 100 * 1024 * 1024) {
+    toast('File too large (max 100 MB)', 'error');
+    return;
+  }
+  uploadedFile = file;
+  $('#fileName').textContent = file.name;
+  $('#fileSize').textContent = formatSize(file.size);
+  fileInfo.classList.add('visible');
+  $('#dataInput').value = '';
+  $('#dataInput').placeholder = `File loaded: ${file.name}`;
+}
+
+$('#fileRemove').addEventListener('click', () => {
+  uploadedFile = null;
+  fileInfo.classList.remove('visible');
+  fileInput.value = '';
+  $('#dataInput').placeholder = 'Paste your data here (CSV, JSON, SQL, code, text...)';
+});
+
+function formatSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+// ========== Sample Buttons ==========
+$$('.sample-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.sample;
+    $('#dataInput').value = SAMPLES[key] || '';
+    uploadedFile = null;
+    fileInfo.classList.remove('visible');
+    toast(`Loaded ${key.toUpperCase()} sample data`);
+  });
+});
+
+// ========== Chips ==========
+function setupChips(container) {
+  container.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      chip.classList.toggle('active');
+      updateChipCount(container);
+    });
+  });
+}
+
+function updateChipCount(container) {
+  const count = container.querySelectorAll('.chip.active').length;
+  if (container.id === 'redundancyChips') {
+    $('#redundancyCount').textContent = count + ' selected';
+  }
+}
+
+function getActiveVals(containerId) {
+  return [...$('#' + containerId).querySelectorAll('.chip.active')].map(c => parseFloat(c.dataset.val));
+}
+
+setupChips($('#redundancyChips'));
+setupChips($('#blockChips'));
+
+// ========== Chaos Profiles ==========
+$$('.profile-item').forEach(item => {
+  item.addEventListener('click', () => {
+    item.classList.toggle('active');
+  });
+});
+
+function getActiveProfiles() {
+  return [...$$('.profile-item.active')].map(el => el.dataset.profile);
+}
+
+// ========== Iterations ==========
+$('#iterDec').addEventListener('click', () => {
+  const el = $('#iterInput');
+  el.value = Math.max(1, parseInt(el.value || 1) - 1);
+});
+$('#iterInc').addEventListener('click', () => {
+  const el = $('#iterInput');
+  el.value = Math.min(10, parseInt(el.value || 1) + 1);
+});
+
+// ========== Run Benchmark ==========
+$('#runBtn').addEventListener('click', runBenchmark);
+
+async function runBenchmark() {
+  const btn = $('#runBtn');
+  const text = $('#dataInput').value.trim();
+
+  if (!text && !uploadedFile) {
+    toast('Please provide data to benchmark', 'error');
+    return;
+  }
+
+  const redundancies = getActiveVals('redundancyChips');
+  const blockSizes = getActiveVals('blockChips');
+  const profiles = getActiveProfiles();
+  const iterations = parseInt($('#iterInput').value) || 1;
+
+  if (redundancies.length === 0) { toast('Select at least one redundancy level', 'error'); return; }
+  if (blockSizes.length === 0) { toast('Select at least one block size', 'error'); return; }
+  if (profiles.length === 0) { toast('Select at least one chaos profile', 'error'); return; }
+
+  const combos = redundancies.length * blockSizes.length * profiles.length * iterations;
+  if (combos > 500) {
+    toast(`Too many combinations (${combos}). Reduce parameters.`, 'error');
+    return;
+  }
+
+  // UI state
+  btn.disabled = true;
+  btn.classList.add('loading');
+  btn.querySelector('.btn-text').textContent = 'Running...';
+  $('#progressContainer').classList.add('visible');
+  $('#progressBar').style.width = '0%';
+  $('#progressText').textContent = 'Submitting benchmark...';
+  $('#results-section').classList.remove('visible');
+
+  try {
+    let resp;
+    if (uploadedFile) {
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      // Note: For multipart, custom params use defaults
+      resp = await fetch('/api/benchmark_custom', { method: 'POST', body: formData });
+    } else {
+      resp = await fetch('/api/benchmark_custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          redundancy: redundancies,
+          block_sizes: blockSizes.map(v => Math.round(v)),
+          chaos_profiles: profiles,
+          iterations
+        })
+      });
+    }
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Request failed');
+    }
+
+    const { task_id } = await resp.json();
+    if (!task_id) throw new Error('No task_id returned');
+
+    // SSE progress
+    await pollSSE(task_id);
+
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    btn.querySelector('.btn-text').textContent = '\u{1F680} Run Benchmark';
+  }
+}
+
+function pollSSE(taskId) {
+  return new Promise((resolve, reject) => {
+    const es = new EventSource(`/api/events/${taskId}`);
+    es.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+        $('#progressBar').style.width = data.percent + '%';
+        $('#progressText').textContent = data.phase || 'Processing...';
+
+        if (data.status === 'done') {
+          es.close();
+          if (data.result) {
+            benchmarkResults = data.result;
+            renderResults(data.result);
+          }
+          $('#progressContainer').classList.remove('visible');
+          resolve();
+        } else if (data.status === 'error') {
+          es.close();
+          toast(data.error || 'Benchmark failed', 'error');
+          $('#progressContainer').classList.remove('visible');
+          reject(new Error(data.error || 'Benchmark failed'));
+        }
+      } catch (e) {
+        // ignore parse errors on keepalive
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      // Check if we already resolved
+      $('#progressContainer').classList.remove('visible');
+      reject(new Error('SSE connection lost'));
+    };
+  });
+}
+
+// ========== Render Results ==========
+function renderResults(data) {
+  if (!data || !data.results) return;
+
+  const results = data.results;
+  const section = $('#results-section');
+  section.classList.add('visible');
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  renderSummaryCards(data);
+  renderTable(results, data.summary);
+  renderCharts(results);
+
+  toast(`Benchmark complete: ${results.length} configurations tested`);
+}
+
+function renderSummaryCards(data) {
+  const cards = $('#summaryCards');
+  const r = data.results;
+  const s = data.summary || {};
+
+  const bestIdx = s.best_config_index;
+  const best = bestIdx != null ? r[bestIdx] : null;
+  const worstIdx = s.worst_config_index;
+  const worst = worstIdx != null ? r[worstIdx] : null;
+
+  const totalPass = r.filter(x => x.all_iterations_match).length;
+  const avgCompress = r.length ? (r.reduce((a, x) => a + (x.compression_ratio || 1), 0) / r.length).toFixed(2) : '-';
+
+  let html = `
+    <div class="summary-card">
+      <div class="card-label">Configurations Tested</div>
+      <div class="card-value cyan">${r.length}</div>
+      <div class="card-detail">Input: ${formatSize(data.input_size || 0)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="card-label">Recovery Rate</div>
+      <div class="card-value ${totalPass === r.length ? 'green' : 'warn'}">${totalPass}/${r.length}</div>
+      <div class="card-detail">${((totalPass/r.length)*100).toFixed(0)}% full recovery</div>
+    </div>
+    <div class="summary-card">
+      <div class="card-label">Avg Compression</div>
+      <div class="card-value cyan">${avgCompress}x</div>
+      <div class="card-detail">Across all configs</div>
+    </div>
+    <div class="summary-card">
+      <div class="card-label">Avg Encode Time</div>
+      <div class="card-value green">${(s.avg_encode_time_ms || 0).toFixed(1)} ms</div>
+      <div class="card-detail">Per configuration</div>
+    </div>
+    <div class="summary-card">
+      <div class="card-label">Avg Decode Time</div>
+      <div class="card-value cyan">${(s.avg_decode_time_ms || 0).toFixed(1)} ms</div>
+      <div class="card-detail">Per configuration</div>
+    </div>`;
+
+  if (best) {
+    html += `
+    <div class="summary-card" style="border-color: var(--accent);">
+      <div class="card-label">Best Configuration</div>
+      <div class="card-value green" style="font-size:1rem;">R=${best.redundancy}x BS=${best.block_size}</div>
+      <div class="card-detail">${best.chaos_profile} — ${best.total_time_ms?.toFixed(1) || '?'} ms total</div>
+    </div>`;
+  }
+
+  cards.innerHTML = html;
+}
+
+function renderTable(results, summary) {
+  const head = $('#tableHead');
+  const body = $('#tableBody');
+  const bestIdx = summary?.best_config_index;
+
+  const cols = [
+    { key: '#', label: '#' },
+    { key: 'redundancy', label: 'Redundancy' },
+    { key: 'block_size', label: 'Block Size' },
+    { key: 'chaos_profile', label: 'Chaos Profile' },
+    { key: 'compression_ratio', label: 'Compress' },
+    { key: 'dna_bases', label: 'DNA Bases' },
+    { key: 'num_oligos', label: 'Oligos' },
+    { key: 'gc_content', label: 'GC%' },
+    { key: 'avg_encode_time_ms', label: 'Encode ms' },
+    { key: 'avg_decode_time_ms', label: 'Decode ms' },
+    { key: 'total_time_ms', label: 'Total ms' },
+    { key: 'cost_per_mb', label: '$/MB' },
+    { key: 'recovery_rate', label: 'Recovery' },
+    { key: 'synthesis_readiness', label: 'Synth Ready' },
+    { key: 'all_iterations_match', label: 'Status' },
+  ];
+
+  head.innerHTML = cols.map(c => `<th data-key="${c.key}">${c.label}<span class="sort-arrow"></span></th>`).join('');
+
+  function renderRows(data) {
+    body.innerHTML = data.map((r, i) => {
+      const origIdx = results.indexOf(r);
+      const isBest = origIdx === bestIdx;
+      return `<tr class="${isBest ? 'best-row' : ''}">
+        <td>${origIdx + 1}</td>
+        <td>${r.redundancy}x</td>
+        <td>${r.block_size} B</td>
+        <td>${r.chaos_profile}</td>
+        <td>${(r.compression_ratio || 1).toFixed(2)}x</td>
+        <td>${(r.dna_bases || 0).toLocaleString()}</td>
+        <td>${r.num_oligos || 0}</td>
+        <td>${((r.gc_content || 0) * 100).toFixed(1)}%</td>
+        <td>${(r.avg_encode_time_ms || 0).toFixed(1)}</td>
+        <td>${(r.avg_decode_time_ms || 0).toFixed(1)}</td>
+        <td>${(r.total_time_ms || 0).toFixed(1)}</td>
+        <td>$${(r.cost_per_mb || 0).toFixed(2)}</td>
+        <td>${((r.recovery_rate || 0) * 100).toFixed(0)}%</td>
+        <td>${((r.synthesis_readiness || 0) * 100).toFixed(0)}%</td>
+        <td><span class="badge ${r.all_iterations_match ? 'pass' : 'fail'}">${r.all_iterations_match ? 'PASS' : 'FAIL'}</span></td>
+      </tr>`;
+    }).join('');
+  }
+  renderRows(results);
+
+  // Sorting
+  let sortKey = null, sortAsc = true;
+  head.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (key === '#') return;
+      if (sortKey === key) sortAsc = !sortAsc;
+      else { sortKey = key; sortAsc = true; }
+      const sorted = [...results].sort((a, b) => {
+        let va = a[key], vb = b[key];
+        if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+        if (typeof va === 'boolean') { va = va ? 1 : 0; vb = vb ? 1 : 0; }
+        return sortAsc ? (va || 0) - (vb || 0) : (vb || 0) - (va || 0);
+      });
+      renderRows(sorted);
+      head.querySelectorAll('.sort-arrow').forEach(a => a.textContent = '');
+      th.querySelector('.sort-arrow').textContent = sortAsc ? ' \u25B2' : ' \u25BC';
+    });
+  });
+}
+
+// ========== Canvas Bar Chart ==========
+function drawBarChart(canvasId, labels, values, color, unit = '') {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const W = rect.width;
+  const H = rect.height;
+  const pad = { top: 20, right: 15, bottom: 50, left: 55 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (values.length === 0) return;
+
+  const maxVal = Math.max(...values) * 1.15 || 1;
+  const barW = Math.min(30, (chartW / values.length) * 0.7);
+  const gap = (chartW - barW * values.length) / (values.length + 1);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(30, 45, 74, 0.5)';
+  ctx.lineWidth = 0.5;
+  ctx.font = '10px system-ui';
+  ctx.fillStyle = '#8899aa';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + chartH - (chartH * i / 4);
+    const val = (maxVal * i / 4);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+    ctx.fillText(val >= 1000 ? (val/1000).toFixed(1)+'k' : val.toFixed(val < 10 ? 1 : 0), pad.left - 5, y + 3);
+  }
+
+  // Bars
+  const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + chartH);
+  if (color === 'green') {
+    gradient.addColorStop(0, '#00ff88');
+    gradient.addColorStop(1, '#00aa55');
+  } else if (color === 'cyan') {
+    gradient.addColorStop(0, '#00d4ff');
+    gradient.addColorStop(1, '#0088aa');
+  } else if (color === 'magenta') {
+    gradient.addColorStop(0, '#ff00aa');
+    gradient.addColorStop(1, '#aa0077');
+  } else if (color === 'warn') {
+    gradient.addColorStop(0, '#ffaa00');
+    gradient.addColorStop(1, '#cc7700');
+  } else {
+    gradient.addColorStop(0, color);
+    gradient.addColorStop(1, color);
+  }
+
+  values.forEach((v, i) => {
+    const x = pad.left + gap * (i + 1) + barW * i;
+    const barH = (v / maxVal) * chartH;
+    const y = pad.top + chartH - barH;
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    const r = Math.min(3, barW / 2);
+    ctx.moveTo(x, y + r);
+    ctx.arcTo(x, y, x + barW, y, r);
+    ctx.arcTo(x + barW, y, x + barW, y + barH, r);
+    ctx.lineTo(x + barW, pad.top + chartH);
+    ctx.lineTo(x, pad.top + chartH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Value label on top
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '9px system-ui';
+    ctx.textAlign = 'center';
+    const vText = v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(v < 10 ? 1 : 0);
+    ctx.fillText(vText + unit, x + barW/2, y - 4);
+  });
+
+  // X labels
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '8px system-ui';
+  ctx.textAlign = 'center';
+  labels.forEach((label, i) => {
+    const x = pad.left + gap * (i + 1) + barW * i + barW / 2;
+    // Rotate long labels
+    ctx.save();
+    ctx.translate(x, pad.top + chartH + 8);
+    ctx.rotate(-Math.PI / 4);
+    ctx.textAlign = 'right';
+    ctx.fillText(label.length > 15 ? label.substring(0, 14) + '..' : label, 0, 0);
+    ctx.restore();
+  });
+}
+
+function renderCharts(results) {
+  const labels = results.map((r, i) => `R${r.redundancy} B${r.block_size} ${r.chaos_profile}`);
+  const shortLabels = results.map((r, i) => `${r.redundancy}x/${r.block_size}`);
+
+  // Use requestAnimationFrame to ensure canvas is rendered
+  requestAnimationFrame(() => {
+    drawBarChart('chartEncode', shortLabels, results.map(r => r.avg_encode_time_ms || 0), 'green');
+    drawBarChart('chartDecode', shortLabels, results.map(r => r.avg_decode_time_ms || 0), 'cyan');
+    drawBarChart('chartBases', shortLabels, results.map(r => r.dna_bases || 0), 'magenta');
+    drawBarChart('chartCost', shortLabels, results.map(r => r.cost_per_mb || 0), 'warn', '$');
+    drawBarChart('chartGC', shortLabels, results.map(r => (r.gc_content || 0) * 100), 'cyan', '%');
+    drawBarChart('chartRecovery', shortLabels, results.map(r => (r.recovery_rate || 0) * 100), 'green', '%');
+  });
+}
+
+// Redraw charts on resize
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (benchmarkResults && benchmarkResults.results) {
+      renderCharts(benchmarkResults.results);
+    }
+  }, 200);
+});
+
+// ========== Export ==========
+$('#exportJSON').addEventListener('click', () => {
+  if (!benchmarkResults) { toast('No results to export', 'error'); return; }
+  const blob = new Blob([JSON.stringify(benchmarkResults, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, 'helix_benchmark_results.json');
+  toast('JSON exported');
+});
+
+$('#exportCSV').addEventListener('click', () => {
+  if (!benchmarkResults || !benchmarkResults.results) { toast('No results to export', 'error'); return; }
+  const rows = benchmarkResults.results;
+  const keys = ['redundancy', 'block_size', 'chaos_profile', 'input_size', 'compressed_size',
+    'compression_ratio', 'dna_bases', 'num_oligos', 'gc_content', 'synthesis_readiness',
+    'avg_encode_time_ms', 'avg_decode_time_ms', 'total_time_ms', 'cost_per_mb',
+    'total_cost_usd', 'recovery_rate', 'all_iterations_match'];
+  const header = keys.join(',');
+  const csvRows = rows.map(r => keys.map(k => {
+    const v = r[k];
+    return typeof v === 'string' ? `"${v}"` : (v ?? '');
+  }).join(','));
+  const csv = [header, ...csvRows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  downloadBlob(blob, 'helix_benchmark_results.csv');
+  toast('CSV exported');
+});
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>

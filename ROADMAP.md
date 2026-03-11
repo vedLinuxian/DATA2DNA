@@ -21,6 +21,7 @@ The critical milestone: physical synthesis and recovery.
 - [ ] Run decode pipeline on sequencing output
 - [ ] Document end-to-end hash verification
 - [ ] Publish results as preprint (bioRxiv)
+- [ ] Add RS erasure decoding — known-position correction (2t=32 erasures vs t=16 errors)
 
 **This milestone converts DATA2DNA from software demo to working prototype.**
 

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Helix-Core v5.0 — DNA Data Storage OS</title>
+    <title>DATA2DNA — Encode Digital Data Into Synthetic DNA</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 </head>
@@ -32,8 +32,8 @@
             <div class="logo-section">
                 <div class="dna-icon">&#x1F9EC;</div>
                 <div>
-                    <h1>Helix-Core <span class="version">v5.0</span></h1>
-                    <p class="tagline">DNA Data Storage Operating System</p>
+                    <h1>DATA2DNA <span class="version">v5.0</span></h1>
+                    <p class="tagline">Encode Digital Data Into Synthetic DNA</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -56,25 +56,23 @@
             <div class="split-layout">
                 <div class="panel input-panel">
                     <h2>Input Data</h2>
-                    <p class="panel-desc">Upload any file: SQL, CSV, PDF, images, videos, archives, code — up to 500 MB.
+                    <p class="panel-desc">Upload text-based files: CSV, JSON, SQL, source code, logs, configs — up to 100 MB.
                     </p>
 
                     <div class="drop-zone" id="dropZone">
                         <div class="drop-zone-content">
                             <div class="drop-icon">&#x1F4C2;</div>
-                            <h3>Drop any file here</h3>
-                            <p>SQL, CSV, PDF, Images, Videos, Archives, Code, Text</p>
+                            <h3>Drop a text-based file here</h3>
+                            <p>Best results with text data — compression reduces synthesis cost</p>
                             <div class="supported-types">
-                                <span class="type-badge">TXT</span>
                                 <span class="type-badge">CSV</span>
-                                <span class="type-badge">SQL</span>
                                 <span class="type-badge">JSON</span>
-                                <span class="type-badge">PDF</span>
-                                <span class="type-badge">PNG/JPG</span>
-                                <span class="type-badge">MP4</span>
-                                <span class="type-badge">MP3</span>
-                                <span class="type-badge">ZIP/7Z</span>
+                                <span class="type-badge">SQL</span>
+                                <span class="type-badge">TXT</span>
+                                <span class="type-badge">TSV</span>
+                                <span class="type-badge">FASTA</span>
                                 <span class="type-badge">Code</span>
+                                <span class="type-badge">Logs</span>
                             </div>
                             <button class="btn btn-primary" id="btnBrowse">Browse Files</button>
                             <input type="file" id="fileInput" hidden>
@@ -88,7 +86,7 @@
 
                     <div class="settings-row">
                         <label>Redundancy: <input type="range" id="redundancySlider" min="1.0" max="5.0" step="0.1"
-                                value="1.5"><span id="redundancyValue">1.5x</span></label>
+                                value="2.0"><span id="redundancyValue">2.0x</span></label>
                     </div>
 
                     <button class="btn btn-encode" id="btnEncode"><span class="btn-icon">&#x1F9EC;</span> Encode to
@@ -164,7 +162,7 @@
             <div class="split-layout">
                 <div class="panel">
                     <h2>Decode from FASTA</h2>
-                    <p class="panel-desc">Upload a Helix-Core FASTA file to recover the original data. Embedded metadata
+                    <p class="panel-desc">Upload a DATA2DNA FASTA file to recover the original data. Embedded metadata
                         enables perfect reconstruction.</p>
 
                     <div class="drop-zone" id="fastaDropZone">
@@ -319,8 +317,8 @@
         </section>
 
         <footer class="app-footer">
-            <p>Helix-Core v5.0 | HyperCompress &rarr; Interleaved-RS &rarr; Fountain &rarr; Transcode &rarr;
-                OligoBuilder &rarr; Constraints &rarr; FASTA</p>
+            <p>DATA2DNA v5.0 | HyperCompress &rarr; Interleaved-RS(255,223) &rarr; Fountain/LT &rarr; Transcode &rarr;
+                OligoBuilder &rarr; Constraints &rarr; FASTA | 183 tests passing</p>
         </footer>
     </div>
 

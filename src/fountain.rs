@@ -20,6 +20,7 @@
 
 use rand::prelude::*;
 use rand::rngs::StdRng;
+use rayon::prelude::*;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -139,24 +140,52 @@ impl FountainCodec {
         }
 
         // Phase 2: Fill remaining budget with fountain-coded XOR droplets
-        for i in systematic_count..num_droplets {
-            let droplet_seed: u64 = rng.gen();
-            let mut d_rng = StdRng::seed_from_u64(droplet_seed);
-            let degree = sample_from_cdf(&cdf, &mut d_rng);
-            let indices = sample_indices(num_blocks, degree, &mut d_rng);
+        // PERF: Pre-generate seeds sequentially (RNG is sequential), then
+        // parallelize the compute-heavy XOR work with Rayon.
+        let xor_count = num_droplets - systematic_count;
+        let seeds: Vec<u64> = (0..xor_count).map(|_| rng.gen()).collect();
 
-            let mut xored = vec![0u8; block_size];
-            for &idx in &indices {
-                xor_in_place(&mut xored, blocks[idx]);
+        // Parallel XOR droplet generation for large batches
+        if xor_count > 64 {
+            let xor_droplets: Vec<Droplet> = seeds.par_iter().enumerate().map(|(j, &droplet_seed)| {
+                let mut d_rng = StdRng::seed_from_u64(droplet_seed);
+                let degree = sample_from_cdf(&cdf, &mut d_rng);
+                let indices = sample_indices(num_blocks, degree, &mut d_rng);
+
+                let mut xored = vec![0u8; block_size];
+                for &idx in &indices {
+                    xor_in_place(&mut xored, blocks[idx]);
+                }
+
+                Droplet {
+                    id: systematic_count + j,
+                    seed: droplet_seed,
+                    degree,
+                    block_indices: indices,
+                    data: xored,
+                }
+            }).collect();
+            droplets.extend(xor_droplets);
+        } else {
+            // Sequential path for small batches (avoids Rayon overhead)
+            for (j, &droplet_seed) in seeds.iter().enumerate() {
+                let mut d_rng = StdRng::seed_from_u64(droplet_seed);
+                let degree = sample_from_cdf(&cdf, &mut d_rng);
+                let indices = sample_indices(num_blocks, degree, &mut d_rng);
+
+                let mut xored = vec![0u8; block_size];
+                for &idx in &indices {
+                    xor_in_place(&mut xored, blocks[idx]);
+                }
+
+                droplets.push(Droplet {
+                    id: systematic_count + j,
+                    seed: droplet_seed,
+                    degree,
+                    block_indices: indices,
+                    data: xored,
+                });
             }
-
-            droplets.push(Droplet {
-                id: i,
-                seed: droplet_seed,
-                degree,
-                block_indices: indices,
-                data: xored,
-            });
         }
 
         FountainEncoded {
@@ -195,9 +224,12 @@ impl FountainCodec {
             .collect();
 
         // Peeling decoder: iterative belief propagation
+        // Peeling converges in at most k iterations by construction.
+        // Add 10% margin for edge cases with duplicate droplets.
+        let max_iterations = num_blocks + (num_blocks / 10).max(10);
         let mut changed = true;
         let mut iterations = 0;
-        while changed && iterations < num_blocks + 50 {
+        while changed && iterations < max_iterations {
             changed = false;
             iterations += 1;
 
@@ -206,7 +238,9 @@ impl FountainCodec {
             for (indices, data) in &active_droplets {
                 if indices.len() == 1 {
                     let block_idx = indices[0];
-                    // BUG-08: Bounds check to prevent panic on corrupted droplets
+                    // Corrupted droplets from sequencing errors may reference block
+                    // indices beyond num_blocks — clamp silently and let the
+                    // peeling decoder recover from remaining valid droplets
                     if block_idx < num_blocks && decoded_blocks[block_idx].is_none() {
                         decoded_blocks[block_idx] =
                             Some(data[..block_size.min(data.len())].to_vec());
@@ -434,10 +468,21 @@ fn sample_indices(n: usize, count: usize, rng: &mut StdRng) -> Vec<usize> {
     indices
 }
 
-/// XOR b into a in-place
+/// XOR b into a in-place.
+/// PERF: Process 8 bytes at a time for auto-vectorization.
+/// The compiler will emit SIMD (SSE2/AVX2/NEON) instructions for the u64 path.
+#[inline]
 fn xor_in_place(a: &mut [u8], b: &[u8]) {
     let len = a.len().min(b.len());
-    for i in 0..len {
+    // Process 8 bytes at a time (auto-vectorizable)
+    let chunks = len / 8;
+    let a_u64 = unsafe { std::slice::from_raw_parts_mut(a.as_mut_ptr() as *mut u64, chunks) };
+    let b_u64 = unsafe { std::slice::from_raw_parts(b.as_ptr() as *const u64, chunks) };
+    for i in 0..chunks {
+        a_u64[i] ^= b_u64[i];
+    }
+    // Handle remaining bytes
+    for i in (chunks * 8)..len {
         a[i] ^= b[i];
     }
 }
