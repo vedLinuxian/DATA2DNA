@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DATA2DNA — DNA Data Storage Pipeline</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --accent-color: #2563eb;
+            --border-color: #e5e7eb;
+            --hover-bg: #f3f4f6;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #000000;
+            --text-color: #ffffff;
+            --accent-color: #60a5fa;
+            --border-color: #374151;
+            --hover-bg: #1f2937;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        header {
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            background-color: var(--bg-color);
+            z-index: 100;
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--accent-color);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 30px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: var(--text-color);
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent-color);
+        }
+
+        .theme-toggle {
+            background: none;
+            border: 2px solid var(--border-color);
+            color: var(--text-color);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--accent-color);
+            background-color: var(--hover-bg);
+        }
+
+        .hero {
+            padding: 80px 0;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: var(--text-color);
+        }
+
+        .hero p {
+            font-size: 20px;
+            margin-bottom: 40px;
+            color: var(--text-color);
+            opacity: 0.8;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+            margin: 60px 0;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 30px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .stat-card:hover {
+            background-color: var(--hover-bg);
+        }
+
+        .stat-number {
+            font-size: 36px;
+            font-weight: bold;
+            color: var(--accent-color);
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.7;
+            margin-top: 10px;
+        }
+
+        section {
+            padding: 60px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .section-content {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin: 40px 0;
+        }
+
+        .feature {
+            padding: 30px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            text-align: left;
+        }
+
+        .feature h3 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: var(--accent-color);
+        }
+
+        .pipeline {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin: 40px 0;
+        }
+
+        .pipeline-stage {
+            display: flex;
+            align-items: center;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: var(--hover-bg);
+        }
+
+        .stage-number {
+            background-color: var(--accent-color);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 20px;
+        }
+
+        .benchmark-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            margin: 40px 0;
+        }
+
+        .bench-card {
+            padding: 25px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: var(--hover-bg);
+        }
+
+        .bench-card h4 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .bench-metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .bench-value {
+            font-weight: bold;
+            color: var(--accent-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 30px 0;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: var(--hover-bg);
+            font-weight: 600;
+        }
+
+        .github-btn {
+            display: inline-block;
+            background-color: var(--accent-color);
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.3s;
+            margin: 20px 10px;
+        }
+
+        .github-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+
+        footer {
+            padding: 40px 0;
+            text-align: center;
+            opacity: 0.7;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 36px;
+            }
+            
+            .nav-links {
+                display: none;
+            }
+            
+            .stats {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <div class="logo">DATA2DNA</div>
+            <ul class="nav-links">
+                <li><a href="#overview">Overview</a></li>
+                <li><a href="#pipeline">Pipeline</a></li>
+                <li><a href="#benchmarks">Benchmarks</a></li>
+                <li><a href="#research">Research</a></li>
+            </ul>
+            <button class="theme-toggle" onclick="toggleTheme()">🌓 Theme</button>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <h1>DNA Data Storage Pipeline</h1>
+                <p>Open-source encoding of digital data into synthetic DNA oligonucleotides with error correction</p>
+                
+                <div class="stats">
+                    <div class="stat-card">
+                        <span class="stat-number">151</span>
+                        <div class="stat-label">Tests Passing</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-number">8</span>
+                        <div class="stat-label">Pipeline Stages</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-number">30%</span>
+                        <div class="stat-label">Loss Recovery</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-number">300bp</span>
+                        <div class="stat-label">Oligo Length</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-number">76%</span>
+                        <div class="stat-label">Payload Efficiency</div>
+                    </div>
+                </div>
+
+                <a href="https://github.com/vedLinuxian/DATA2DNA" class="github-btn">View on GitHub</a>
+                <a href="https://github.com/vedLinuxian/DATA2DNA/releases" class="github-btn">Download</a>
+            </div>
+        </section>
+
+        <section id="overview">
+            <div class="container">
+                <h2>What is DATA2DNA?</h2>
+                <div class="section-content">
+                    <p style="font-size: 18px; margin-bottom: 30px;">
+                        DATA2DNA is a production-ready pipeline that encodes arbitrary digital data into synthetic DNA oligonucleotides. 
+                        It implements state-of-the-art error correction and compression techniques to achieve reliable long-term data storage.
+                    </p>
+                </div>
+
+                <div class="features">
+                    <div class="feature">
+                        <h3>Triple Error Correction</h3>
+                        <p>CRC-32 per oligo, Reed-Solomon RS(255,223) in GF(2⁸), and Fountain codes with Robust Soliton distribution ensure data integrity even with 30% oligo loss.</p>
+                    </div>
+                    
+                    <div class="feature">
+                        <h3>Multi-Stage Compression</h3>
+                        <p>HyperCompress engine with BWT+MTF+ZRLE preprocessing, followed by parallel ZSTD-22/Brotli-11 trials. Optimized for text-based data formats.</p>
+                    </div>
+                    
+                    <div class="feature">
+                        <h3>Biological Constraints</h3>
+                        <p>Screens for GC content (40-60%), homopolymer runs (≤3), restriction enzyme sites, and primer compatibility before synthesis.</p>
+                    </div>
+                    
+                    <div class="feature">
+                        <h3>Web Interface</h3>
+                        <p>Actix-web server with real-time progress via Server-Sent Events, drag-and-drop file upload, and comprehensive testing interface.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="pipeline">
+            <div class="container">
+                <h2>8-Stage Encoding Pipeline</h2>
+                <div class="section-content">
+                    <p>Each stage is designed for production use with comprehensive error handling and progress reporting.</p>
+                </div>
+
+                <div class="pipeline">
+                    <div class="pipeline-stage">
+                        <div class="stage-number">1</div>
+                        <div>
+                            <strong>HyperCompress</strong><br>
+                            Multi-algorithm compression with parallel evaluation. BWT+MTF+ZRLE preprocessing, then ZSTD-22 vs Brotli-11 trials.
+                        </div>
+                    </div>
+                    
+                    <div class="pipeline-stage">
+                        <div class="stage-number">2</div>
+                        <div>
+                            <strong>Interleaved Reed-Solomon</strong><br>
+                            RS(255,223) error correction with cross-oligo interleaving. Converts burst oligo losses into correctable single-symbol errors.
+                        </div>
+                    </div>
+                    
+                    <div class="pipeline-stage">
+                        <div class="stage-number">3</div>
+                        <div>
+                            <strong>DNA Transcoder</strong><br>
+                            2-bit encoding (A=00, C=01, G=10, T=11) with rotation cipher for GC balance. Preserves biological compatibility.
+                        </div>
+                    </div>
+                    
+                    <div class="pipeline-stage">
+                        <div class="stage-number">4</div>
+                        <div>
+                            <strong>Fountain Codes</strong><br>
+                            LT codes with Robust Soliton distribution (c=0.025, δ=0.001). 2.0× redundancy provides 30% loss tolerance.
+                        </div>
+                    </div>
+                    
+                    <div class="pipeline-stage">
+                        <div class="stage-number">5</div>
+                        <div>
+                            <strong>Oligo Builder</strong><br>
+                            Structured 300bp oligos: 20bp primers + 16bp index + 228bp payload + 16bp CRC-32. Production synthesis compatible.
+                        </div>
+                    </div>
+                    
+                    <div class="pipeline-stage">
+                        <div class="stage-number">6</div>
+                        <div>
+                            <strong>DNA Constraints</strong><br>
+                            Biological screening for GC content, homopolymer runs, restriction enzyme sites, and primer compatibility.
+                        </div>
+                    </div>
+                    
+                    <div class="pipeline-stage">
+                        <div class="stage-number">7</div>
+                        <div>
+                            <strong>FASTA Output</strong><br>
+                            Standard FASTA format with embedded metadata for standalone decode. Ready for Twist/IDT/GenScript submission.
+                        </div>
+                    </div>
+                    
+                    <div class="pipeline-stage">
+                        <div class="stage-number">8</div>
+                        <div>
+                            <strong>Cost Estimation</strong><br>
+                            Commercial synthesis pricing at current vendor rates. Projects costs across different redundancy scenarios.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="benchmarks">
+            <div class="container">
+                <h2>Performance & Benchmarks</h2>
+                <div class="section-content">
+                    <p>Real performance data from our test suite (151 tests, all passing):</p>
+                </div>
+
+                <div class="benchmark-grid">
+                    <div class="bench-card">
+                        <h4>Test Suite Results</h4>
+                        <div class="bench-metric">
+                            <span>Unit Tests:</span>
+                            <span class="bench-value">70 passing</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Integration Tests:</span>
+                            <span class="bench-value">81 passing</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Test Runtime:</span>
+                            <span class="bench-value">~26 seconds</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Failures:</span>
+                            <span class="bench-value" style="color: green;">0</span>
+                        </div>
+                    </div>
+
+                    <div class="bench-card">
+                        <h4>Error Correction</h4>
+                        <div class="bench-metric">
+                            <span>Reed-Solomon:</span>
+                            <span class="bench-value">RS(255,223)</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Fountain Redundancy:</span>
+                            <span class="bench-value">2.0×</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Max Loss Recovery:</span>
+                            <span class="bench-value">30%</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>CRC per Oligo:</span>
+                            <span class="bench-value">16 bits</span>
+                        </div>
+                    </div>
+
+                    <div class="bench-card">
+                        <h4>Oligo Structure</h4>
+                        <div class="bench-metric">
+                            <span>Total Length:</span>
+                            <span class="bench-value">300 bp</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Payload:</span>
+                            <span class="bench-value">228 bp</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Efficiency:</span>
+                            <span class="bench-value">76%</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Overhead:</span>
+                            <span class="bench-value">72 bp</span>
+                        </div>
+                    </div>
+
+                    <div class="bench-card">
+                        <h4>Compression (Text Data)</h4>
+                        <div class="bench-metric">
+                            <span>CSV/TSV:</span>
+                            <span class="bench-value">8-16× typical</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>JSON:</span>
+                            <span class="bench-value">6-12× typical</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Source Code:</span>
+                            <span class="bench-value">4-8× typical</span>
+                        </div>
+                        <div class="bench-metric">
+                            <span>Plain Text:</span>
+                            <span class="bench-value">3-6× typical</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 style="margin: 40px 0 20px 0; text-align: center;">Technical Specifications</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Parameter</th>
+                            <th>Value</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Block Size</td>
+                            <td>64 bytes</td>
+                            <td>Reed-Solomon alignment</td>
+                        </tr>
+                        <tr>
+                            <td>Fountain Distribution</td>
+                            <td>Robust Soliton</td>
+                            <td>c=0.025, δ=0.001 (DNA Fountain params)</td>
+                        </tr>
+                        <tr>
+                            <td>GF Polynomial</td>
+                            <td>0x11D</td>
+                            <td>x⁸ + x⁴ + x³ + x² + 1</td>
+                        </tr>
+                        <tr>
+                            <td>Primers</td>
+                            <td>20bp each</td>
+                            <td>Forward/reverse PCR amplification</td>
+                        </tr>
+                        <tr>
+                            <td>Index Length</td>
+                            <td>16bp</td>
+                            <td>XOR-scrambled oligo identifier</td>
+                        </tr>
+                        <tr>
+                            <td>GC Content Range</td>
+                            <td>40-60%</td>
+                            <td>Synthesis optimization</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="research">
+            <div class="container">
+                <h2>Academic Foundation</h2>
+                <div class="section-content">
+                    <p>Based on peer-reviewed research in DNA data storage:</p>
+                    
+                    <div style="text-align: left; max-width: 900px; margin: 30px auto;">
+                        <p><strong>Erlich, Y. & Zielinski, D.</strong> (2017). DNA Fountain enables a robust and efficient storage architecture. <em>Science</em>, 355(6328), 950-954.</p>
+                        <p style="margin: 15px 0;"><strong>Church, G.M., Gao, Y. & Kosuri, S.</strong> (2012). Next-generation digital information storage in DNA. <em>Science</em>, 337(6102), 1628.</p>
+                        <p><strong>Goldman, N. et al.</strong> (2013). Towards practical, high-capacity, low-maintenance information storage in synthesized DNA. <em>Nature</em>, 494(7435), 77-80.</p>
+                        <p style="margin: 15px 0;"><strong>Organick, L. et al.</strong> (2018). Random access in large-scale DNA data storage. <em>Nature Biotechnology</em>, 36(3), 242-248.</p>
+                        <p><strong>Luby, M.</strong> (2002). LT codes. <em>Proceedings 43rd Annual IEEE Symposium on Foundations of Computer Science</em>, 271-280.</p>
+                    </div>
+
+                    <h3 style="margin: 40px 0 20px 0;">Why DNA Storage?</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Storage Medium</th>
+                                <th>Density</th>
+                                <th>Durability</th>
+                                <th>Energy (Storage)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Hard Drive</td>
+                                <td>~1 TB/100g</td>
+                                <td>5-10 years</td>
+                                <td>6-8W continuous</td>
+                            </tr>
+                            <tr>
+                                <td>LTO-9 Tape</td>
+                                <td>18 TB/cartridge</td>
+                                <td>30 years</td>
+                                <td>Climate control</td>
+                            </tr>
+                            <tr style="background-color: var(--hover-bg);">
+                                <td><strong>DNA</strong></td>
+                                <td><strong>215 PB/gram</strong></td>
+                                <td><strong>10,000+ years</strong></td>
+                                <td><strong>Zero</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>DATA2DNA • Open Source DNA Data Storage • <a href="https://github.com/vedLinuxian/DATA2DNA" style="color: var(--accent-color);">GitHub</a></p>
+            <p style="margin-top: 10px; opacity: 0.6;">AGPL-3.0 License • Commercial licensing available • Contact: vedcimit@gmail.com</p>
+        </div>
+    </footer>
+
+    <script>
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+
+        // Load saved theme
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

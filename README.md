@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-2021-orange?logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License">
+  <img src="https://img.shields.io/badge/License-AGPL--3.0%20%2F%20Commercial-blue" alt="License">
   <img src="https://img.shields.io/badge/Tests-151%20passing-brightgreen" alt="Tests">
   <img src="https://img.shields.io/badge/Pipeline-8%20stages-purple" alt="Pipeline">
 </p>
@@ -328,7 +328,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. We welcome contributions 
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+Dual licensed under **AGPL-3.0** (open source) and a **Commercial License** (proprietary use).
+
+- Open-source use: [LICENSE](LICENSE) (AGPL-3.0)
+- Commercial use: [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md)
+- Overview: [LICENSING.md](LICENSING.md)
+
+Contact vedcimit@gmail.com for commercial licensing inquiries.
 
 ---
 
@@ -340,6 +346,7 @@ If you use DATA2DNA in research, please cite:
 @software{data2dna2025,
   title={DATA2DNA: Encoding Digital Data Into Synthetic DNA},
   author={Ved},
+  email={vedcimit@gmail.com},
   year={2025},
   url={https://github.com/vedLinuxian/DATA2DNA},
   note={Open-source DNA data storage pipeline with triple-layer error correction}
