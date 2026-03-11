@@ -1,0 +1,51 @@
+# Build artifacts
+/target/
+debug/
+release/
+
+# IDE files
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+.directory
+
+# Rust specific
+**/*.rs.bk
+Cargo.lock
+
+# Test artifacts
+*.tmp
+*.bak
+test_output/
+
+# Environment
+.env
+.env.local
+
+# Python cache (for helper scripts)
+__pycache__/
+*.pyc
+*.pyo
+
+# Large test data
+*.fasta.test
+*.dna
+dummy_data_to_7z/
+
+# Test corruption files
+test_corrupt_*.7z
+test_corrupt_*.zip
+test_photos.*
+
+# Workspace files
+*.code-workspace
+
+# Roast / scratch docs
+CODEBASE_ROAST.md

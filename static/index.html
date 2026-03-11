@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helix-Core v5.0 — DNA Data Storage OS</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <canvas id="helixBg"></canvas>
+
+    <!-- Progress Overlay -->
+    <div id="progressOverlay" class="progress-overlay hidden">
+        <div class="progress-card">
+            <div class="dna-spinner"></div>
+            <h3 id="progressPhase">Processing...</h3>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <span id="progressPercent">0%</span>
+            <div id="progressEta"
+                style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: center;"></div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-section">
+                <div class="dna-icon">&#x1F9EC;</div>
+                <div>
+                    <h1>Helix-Core <span class="version">v5.0</span></h1>
+                    <p class="tagline">DNA Data Storage Operating System</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-outline" id="btnBenchmark" title="Run benchmarks">&#x26A1; Benchmark</button>
+                <div class="status-indicator" id="statusDot"><span class="dot green"></span> Online</div>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab active" data-tab="encode">&#x1F52C; Encode</button>
+            <button class="tab" data-tab="fasta-decode">&#x1F4E5; FASTA Decode</button>
+            <button class="tab" data-tab="chaos">&#x2622;&#xFE0F; Chaos</button>
+            <button class="tab" data-tab="decode">&#x1F513; Pipeline Decode</button>
+            <button class="tab" data-tab="benchmark">&#x1F4CA; Benchmarks</button>
+        </nav>
+
+        <!-- ========== ENCODE TAB ========== -->
+        <section id="tab-encode" class="tab-content active">
+            <div class="split-layout">
+                <div class="panel input-panel">
+                    <h2>Input Data</h2>
+                    <p class="panel-desc">Upload any file: SQL, CSV, PDF, images, videos, archives, code — up to 500 MB.
+                    </p>
+
+                    <div class="drop-zone" id="dropZone">
+                        <div class="drop-zone-content">
+                            <div class="drop-icon">&#x1F4C2;</div>
+                            <h3>Drop any file here</h3>
+                            <p>SQL, CSV, PDF, Images, Videos, Archives, Code, Text</p>
+                            <div class="supported-types">
+                                <span class="type-badge">TXT</span>
+                                <span class="type-badge">CSV</span>
+                                <span class="type-badge">SQL</span>
+                                <span class="type-badge">JSON</span>
+                                <span class="type-badge">PDF</span>
+                                <span class="type-badge">PNG/JPG</span>
+                                <span class="type-badge">MP4</span>
+                                <span class="type-badge">MP3</span>
+                                <span class="type-badge">ZIP/7Z</span>
+                                <span class="type-badge">Code</span>
+                            </div>
+                            <button class="btn btn-primary" id="btnBrowse">Browse Files</button>
+                            <input type="file" id="fileInput" hidden>
+                        </div>
+                    </div>
+
+                    <div class="text-input-section">
+                        <h3>Or enter text:</h3>
+                        <textarea id="textInput" placeholder="Paste text, SQL, CSV, JSON, code..."></textarea>
+                    </div>
+
+                    <div class="settings-row">
+                        <label>Redundancy: <input type="range" id="redundancySlider" min="1.0" max="5.0" step="0.1"
+                                value="1.5"><span id="redundancyValue">1.5x</span></label>
+                    </div>
+
+                    <button class="btn btn-encode" id="btnEncode"><span class="btn-icon">&#x1F9EC;</span> Encode to
+                        DNA</button>
+
+                    <div id="fileInfo" class="file-info hidden">
+                        <div class="file-icon" id="fileIcon">&#x1F4C4;</div>
+                        <div class="file-details">
+                            <strong id="fileName">-</strong>
+                            <span id="fileSize">-</span>
+                            <span id="fileType">-</span>
+                        </div>
+                        <button class="btn-clear" id="btnClearFile">&times;</button>
+                    </div>
+                </div>
+
+                <div class="panel results-panel hidden" id="resultsPanel">
+                    <h2>Encode Results</h2>
+                    <div class="stats-grid" id="quickStats"></div>
+
+                    <div class="result-section" id="compressionSection">
+                        <h3>Compression</h3>
+                        <div id="compressionStats"></div>
+                    </div>
+
+                    <div class="result-section" id="analyticsSection">
+                        <h3>DNA Analytics</h3>
+                        <div class="chart-row">
+                            <div class="chart-container"><canvas id="baseChart"></canvas></div>
+                            <div class="chart-container"><canvas id="gcWindowChart"></canvas></div>
+                        </div>
+                        <div id="analyticsDetails"></div>
+                    </div>
+
+                    <div class="result-section" id="fastaSection">
+                        <h3>FASTA Output</h3>
+                        <div class="fasta-actions">
+                            <button class="btn btn-sm btn-primary" id="btnDownloadFasta">Download FASTA</button>
+                        </div>
+                        <pre class="fasta-preview" id="fastaPreview"></pre>
+                    </div>
+
+                    <div class="result-section" id="oligoSection">
+                        <h3>Oligo &amp; Error Correction</h3>
+                        <div id="oligoStats"></div>
+                    </div>
+
+                    <div class="result-section" id="costSection">
+                        <h3>Synthesis Cost</h3>
+                        <div id="costStats"></div>
+                    </div>
+
+                    <div class="result-section hidden" id="imageSection">
+                        <h3>File Preview</h3>
+                        <img id="imagePreview" class="image-preview" alt="preview">
+                    </div>
+
+                    <div class="result-section" id="downloadSection">
+                        <h3>Downloads</h3>
+                        <div class="download-grid">
+                            <a href="/api/download_fasta" class="download-card" id="dlFasta"><span
+                                    class="dl-icon">&#x1F9EC;</span><span>FASTA File</span></a>
+                            <a href="/api/download_original" class="download-card" id="dlOriginal"><span
+                                    class="dl-icon">&#x1F4C4;</span><span>Original File</span></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== FASTA DECODE TAB ========== -->
+        <section id="tab-fasta-decode" class="tab-content">
+            <div class="split-layout">
+                <div class="panel">
+                    <h2>Decode from FASTA</h2>
+                    <p class="panel-desc">Upload a Helix-Core FASTA file to recover the original data. Embedded metadata
+                        enables perfect reconstruction.</p>
+
+                    <div class="drop-zone" id="fastaDropZone">
+                        <div class="drop-zone-content">
+                            <div class="drop-icon">&#x1F9EC;</div>
+                            <h3>Drop FASTA file here</h3>
+                            <p>.fasta, .fa, .fna, or .txt</p>
+                            <button class="btn btn-primary" id="btnBrowseFasta">Browse FASTA</button>
+                            <input type="file" id="fastaFileInput" accept=".fasta,.fa,.fna,.txt" hidden>
+                        </div>
+                    </div>
+
+                    <div class="text-input-section">
+                        <h3>Or paste FASTA content:</h3>
+                        <textarea id="fastaTextInput"
+                            placeholder=";HELIX-CORE-v5.0 DNA Storage Archive&#10;>HELIX_000001|len=200|idx=0&#10;CTACACGACGCTCTTCCGAT..."></textarea>
+                    </div>
+
+                    <button class="btn btn-decode" id="btnDecodeFasta"><span class="btn-icon">&#x1F513;</span> Decode
+                        FASTA</button>
+                </div>
+
+                <div class="panel hidden" id="fastaDecodeResults">
+                    <h2>Decode Results</h2>
+                    <div id="fastaDecodeStats"></div>
+                    <div class="result-section hidden" id="fastaRecoveredImage">
+                        <h3>Recovered Image</h3>
+                        <img id="fastaRecoveredImagePreview" class="image-preview" alt="recovered">
+                    </div>
+                    <div class="result-section">
+                        <h3>Recovered Data Preview</h3>
+                        <pre id="fastaRecoveredText" class="recovered-preview"></pre>
+                    </div>
+                    <div class="download-grid">
+                        <a href="/api/download_original" class="download-card"><span
+                                class="dl-icon">&#x1F4C4;</span><span>Download Recovered</span></a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== CHAOS TAB ========== -->
+        <section id="tab-chaos" class="tab-content">
+            <div class="panel">
+                <h2>Chaos Simulation</h2>
+                <p class="panel-desc">Simulate DNA degradation: droplet loss, mutations, insertions, deletions.</p>
+
+                <div class="profile-grid" id="errorProfiles">
+                    <button class="profile-card" data-profile="illumina">
+                        <h4>Illumina NGS</h4>
+                        <p>High accuracy</p>
+                    </button>
+                    <button class="profile-card" data-profile="nanopore">
+                        <h4>Oxford Nanopore</h4>
+                        <p>Higher errors</p>
+                    </button>
+                    <button class="profile-card" data-profile="pacbio_hifi">
+                        <h4>PacBio HiFi</h4>
+                        <p>Long, accurate</p>
+                    </button>
+                    <button class="profile-card" data-profile="aging_1000yr">
+                        <h4>1000-Year Aging</h4>
+                        <p>DNA degradation</p>
+                    </button>
+                    <button class="profile-card" data-profile="catastrophic">
+                        <h4>Catastrophic</h4>
+                        <p>Extreme damage</p>
+                    </button>
+                </div>
+
+                <div class="chaos-controls">
+                    <label>Loss: <input type="range" id="chaosLoss" min="0" max="0.8" step="0.01" value="0.30"><span
+                            id="chaosLossVal">30%</span></label>
+                    <label>Deletions: <input type="range" id="chaosDeletion" min="0" max="0.5" step="0.01"
+                            value="0.15"><span id="chaosDeletionVal">15%</span></label>
+                    <label>Substitutions: <input type="range" id="chaosSub" min="0" max="0.5" step="0.01"
+                            value="0.05"><span id="chaosSubVal">5%</span></label>
+                    <label>Insertions: <input type="range" id="chaosIns" min="0" max="0.5" step="0.01"
+                            value="0.02"><span id="chaosInsVal">2%</span></label>
+                </div>
+
+                <button class="btn btn-chaos" id="btnChaos"><span class="btn-icon">&#x2622;&#xFE0F;</span> Simulate
+                    Damage</button>
+
+                <div id="chaosResults" class="hidden">
+                    <div id="chaosStats"></div>
+                    <div class="chart-container"><canvas id="chaosChart"></canvas></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== PIPELINE DECODE TAB ========== -->
+        <section id="tab-decode" class="tab-content">
+            <div class="panel">
+                <h2>Pipeline Decode</h2>
+                <p class="panel-desc">Decode from the internal pipeline (after chaos simulation or direct).</p>
+
+                <button class="btn btn-decode" id="btnDecode"><span class="btn-icon">&#x1F513;</span> Decode
+                    Pipeline</button>
+
+                <div id="decodeResults" class="hidden">
+                    <div id="decodeStats"></div>
+                    <div class="result-section hidden" id="decodeImageSection">
+                        <h3>Recovered File</h3>
+                        <img id="decodeImagePreview" class="image-preview" alt="recovered">
+                    </div>
+                    <div class="result-section">
+                        <h3>Recovered Data</h3>
+                        <pre id="decodePreview" class="recovered-preview"></pre>
+                    </div>
+                    <div class="download-grid">
+                        <a href="/api/download_recovered" class="download-card"><span
+                                class="dl-icon">&#x1F4C4;</span><span>Download Recovered</span></a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== BENCHMARK TAB ========== -->
+        <section id="tab-benchmark" class="tab-content">
+            <div class="panel">
+                <h2>Performance Benchmarks</h2>
+                <p class="panel-desc">Comprehensive benchmark across file types — verifies roundtrip integrity and
+                    measures performance.</p>
+
+                <button class="btn btn-primary" id="btnRunBenchmark"><span class="btn-icon">&#x26A1;</span> Run
+                    Benchmarks</button>
+
+                <div id="benchmarkResults" class="hidden">
+                    <div class="benchmark-summary" id="benchmarkSummary"></div>
+                    <div class="chart-container"><canvas id="benchmarkChart"></canvas></div>
+                    <div class="table-wrapper">
+                        <table class="benchmark-table" id="benchmarkTable">
+                            <thead>
+                                <tr>
+                                    <th>Test</th>
+                                    <th>Input</th>
+                                    <th>Compressed</th>
+                                    <th>Ratio</th>
+                                    <th>DNA Bases</th>
+                                    <th>Oligos</th>
+                                    <th>Encode (ms)</th>
+                                    <th>Decode (ms)</th>
+                                    <th>Match</th>
+                                </tr>
+                            </thead>
+                            <tbody id="benchmarkBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer class="app-footer">
+            <p>Helix-Core v5.0 | HyperCompress &rarr; Interleaved-RS &rarr; Fountain &rarr; Transcode &rarr;
+                OligoBuilder &rarr; Constraints &rarr; FASTA</p>
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>

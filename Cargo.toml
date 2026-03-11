@@ -1,0 +1,40 @@
+[package]
+name = "helix-core"
+version = "5.0.0"
+edition = "2021"
+description = "DATA2DNA: Encode any digital data into synthetic DNA oligonucleotides with extreme fault tolerance"
+license = "MIT"
+repository = "https://github.com/vedLinuxian/DATA2DNA"
+readme = "README.md"
+keywords = ["dna", "storage", "fountain-codes", "reed-solomon", "bioinformatics"]
+categories = ["encoding", "science", "compression"]
+
+[dependencies]
+actix-web = "4"
+actix-multipart = "0.7"
+actix-files = "0.6"
+actix-cors = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+rayon = "1"
+zstd = "0.13"
+brotli = "6"
+lz4_flex = "0.11"
+flate2 = "1"
+futures-util = "0.3"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.10"
+mime_guess = "2"
+byteorder = "1"
+
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
