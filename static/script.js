@@ -244,29 +244,128 @@
     // ── Progress Overlay ──────────────────────────────────────────────
     let startProgressTime = null;
 
+    // ── Step definitions: map percent ranges to clean step labels ────
+    var STEPS = [
+        { from: 0,  to: 4,   num: 1, total: 8, label: 'Analyzing data' },
+        { from: 5,  to: 21,  num: 2, total: 8, label: 'Compressing' },
+        { from: 22, to: 29,  num: 3, total: 8, label: 'Reed-Solomon encoding' },
+        { from: 30, to: 41,  num: 4, total: 8, label: 'Fountain coding' },
+        { from: 42, to: 51,  num: 5, total: 8, label: 'DNA transcoding' },
+        { from: 52, to: 59,  num: 6, total: 8, label: 'Building oligos' },
+        { from: 60, to: 79,  num: 7, total: 8, label: 'Constraints + FASTA' },
+        { from: 80, to: 100, num: 8, total: 8, label: 'Cost estimate + finalize' },
+    ];
+    function getStep(pct) {
+        for (var i = 0; i < STEPS.length; i++) {
+            if (pct >= STEPS[i].from && pct <= STEPS[i].to) return STEPS[i];
+        }
+        return STEPS[STEPS.length - 1];
+    }
+    // Decode steps have different labels
+    var DECODE_STEPS = [
+        { from: 0,  to: 20,  num: 1, total: 5, label: 'Fountain decode' },
+        { from: 21, to: 49,  num: 2, total: 5, label: 'Reed-Solomon correction' },
+        { from: 50, to: 69,  num: 3, total: 5, label: 'Decompressing' },
+        { from: 70, to: 89,  num: 4, total: 5, label: 'Verifying checksum' },
+        { from: 90, to: 100, num: 5, total: 5, label: 'Finalizing' },
+    ];
+
+    // Detect mode from phase text for decode vs encode step labels
+    var _progressMode = 'encode';
+    function setProgressMode(mode) { _progressMode = mode; }
+
+    function fmtDuration(ms) {
+        if (!ms || ms <= 0) return '';
+        var s = Math.floor(ms / 1000);
+        if (s < 60) return s + 's';
+        return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+    }
+
+    // Last known server elapsed_ms (for accurate ETA)
+    var _serverElapsedMs = 0;
+    var _lastPercent = 0;
+
     function showProgress(phase, pct) {
         startProgressTime = Date.now();
+        _serverElapsedMs = 0;
+        _lastPercent = 0;
+        _progressMode = 'encode';
         show('progressOverlay');
-        updateProgress(phase, pct);
+        updateProgress(phase, pct, 0);
     }
-    function updateProgress(phase, pct) {
-        setText('progressPhase', phase || 'Processing\u2026');
-        var bar = $('progressBar');
-        if (bar) bar.style.width = (pct || 0) + '%';
-        setText('progressPercent', (pct || 0) + '%');
+    function updateProgress(phase, pct, elapsedMs) {
+        pct = pct || 0;
+        var elapsed = elapsedMs || 0;
+        if (elapsed > 0) _serverElapsedMs = elapsed;
+        _lastPercent = pct;
 
-        // Calculate ETA
-        var etaEl = $('progressEta');
-        if (etaEl && startProgressTime && pct > 0 && pct < 100) {
-            var elapsedMs = Date.now() - startProgressTime;
-            var estTotalMs = (elapsedMs / pct) * 100;
-            var remainingMs = estTotalMs - elapsedMs;
-            var remainingSecs = Math.max(0, Math.round(remainingMs / 1000));
+        // Detect decode mode
+        if (phase && (phase.indexOf('decode') !== -1 || phase.indexOf('Fountain') !== -1 || phase.indexOf('Decompressing') !== -1)) {
+            _progressMode = 'decode';
+        }
 
-            if (remainingSecs > 60) {
-                etaEl.textContent = 'ETA: ~' + Math.floor(remainingSecs / 60) + 'm ' + (remainingSecs % 60) + 's';
+        // Step label
+        var stepArr = _progressMode === 'decode' ? DECODE_STEPS : STEPS;
+        var step = null;
+        for (var i = 0; i < stepArr.length; i++) {
+            if (pct >= stepArr[i].from && pct <= stepArr[i].to) { step = stepArr[i]; break; }
+        }
+        if (!step) step = stepArr[stepArr.length - 1];
+
+        // Split phase into clean heading vs detail
+        // The pipeline sends long strings like "HyperCompress: 28.3× compression..."
+        // We show the clean step name as the heading and the server detail as subtitle
+        var detail = (typeof phase === 'string' && phase !== 'Complete') ? phase : '';
+
+        // Set step indicator
+        var stepEl = $('progressStep');
+        if (stepEl) {
+            if (pct >= 100) {
+                stepEl.textContent = '✓ Done';
             } else {
-                etaEl.textContent = 'ETA: ~' + remainingSecs + 's';
+                stepEl.textContent = 'Step ' + step.num + ' / ' + step.total;
+            }
+        }
+
+        // Set clean step label as main heading
+        var phaseEl = $('progressPhase');
+        if (phaseEl) {
+            phaseEl.textContent = pct >= 100 ? 'Complete' : step.label;
+        }
+
+        // Set verbose detail as subtitle
+        var detailEl = $('progressDetail');
+        if (detailEl) detailEl.textContent = detail;
+
+        // Progress bar
+        var bar = $('progressBar');
+        if (bar) bar.style.width = pct + '%';
+
+        // Percent
+        setText('progressPercent', pct + '%');
+
+        // Elapsed (real server time)
+        var elapsedEl = $('progressElapsed');
+        if (elapsedEl) {
+            if (_serverElapsedMs > 0) {
+                elapsedEl.textContent = fmtDuration(_serverElapsedMs);
+            } else if (startProgressTime) {
+                elapsedEl.textContent = fmtDuration(Date.now() - startProgressTime);
+            } else {
+                elapsedEl.textContent = '';
+            }
+        }
+
+        // ETA - use server elapsed_ms if available (accurate), else client-side
+        var etaEl = $('progressEta');
+        if (etaEl && pct > 0 && pct < 100) {
+            var usedElapsed = _serverElapsedMs > 0 ? _serverElapsedMs : (startProgressTime ? Date.now() - startProgressTime : 0);
+            if (usedElapsed > 500) {
+                var estTotal = (usedElapsed / pct) * 100;
+                var remaining = Math.max(0, estTotal - usedElapsed);
+                etaEl.textContent = 'ETA: ~' + fmtDuration(remaining);
+            } else {
+                etaEl.textContent = '';
             }
         } else if (etaEl) {
             etaEl.textContent = '';
@@ -275,6 +374,8 @@
     function hideProgress() {
         hide('progressOverlay');
         startProgressTime = null;
+        _serverElapsedMs = 0;
+        _lastPercent = 0;
     }
 
     // ── Task Polling ──────────────────────────────────────────────────
@@ -287,7 +388,7 @@
                 es.onmessage = function (e) {
                     try {
                         var d = JSON.parse(e.data);
-                        updateProgress(d.phase, d.percent);
+                        updateProgress(d.phase, d.percent, d.elapsed_ms || 0);
                         if (d.status === 'done' && !done) {
                             done = true; es.close(); hideProgress(); resolve(d.result);
                         } else if (d.status === 'error' && !done) {
@@ -327,7 +428,7 @@
                         } else if (attempts > 360) {
                             hideProgress(); reject(new Error('Timeout waiting for task result.'));
                         } else {
-                            updateProgress(d.phase, d.percent);
+                            updateProgress(d.phase, d.percent, d.elapsed_ms || 0);
                             setTimeout(poll, 500);
                         }
                     })

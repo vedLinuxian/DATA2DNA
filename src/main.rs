@@ -60,18 +60,27 @@ struct TaskState {
     status: String,
     phase: String,
     percent: u32,
+    elapsed_ms: u64,
+    #[serde(skip)]
+    started_at_ms: u64,
     result: Option<serde_json::Value>,
     error: Option<String>,
 }
 
 impl TaskState {
     fn new(id: &str, owner: &str) -> Self {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         Self {
             id: id.to_string(),
             owner: owner.to_string(),
             status: "running".to_string(),
             phase: "Starting...".to_string(),
             percent: 0,
+            elapsed_ms: 0,
+            started_at_ms: now_ms,
             result: None,
             error: None,
         }
@@ -236,6 +245,12 @@ fn update_task(state: &AppState, id: &str, f: impl FnOnce(&mut TaskState)) {
         };
         if let Some(t) = tasks.get_mut(id) {
             f(t);
+            // Compute real elapsed_ms from task creation time
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            t.elapsed_ms = now_ms.saturating_sub(t.started_at_ms);
             Some(t.clone())
         } else {
             None
