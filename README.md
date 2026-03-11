@@ -388,5 +388,5 @@ Contact vedcimit@gmail.com for commercial licensing.
 ---
 
 <p align="center">
-  <sub>Built with Rust 🦀 — 10,604 lines of systems code, 183 tests, zero <code>.unwrap()</code> on user data paths.</sub>
+  <sub>Built with Rust 🦀 </sub>
 </p>
